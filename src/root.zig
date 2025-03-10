@@ -18,8 +18,7 @@ const OpenGLEnv = struct {
 var env: OpenGLEnv = .{};
 
 const InternalLoadContext = struct {
-    lib: *std.DynLib,
-    loadFunc: *const fn (void, [:0]const u8) ?glFunctionPointer,
+    loadFunc: *const fn ([*:0]const u8) ?glFunctionPointer,
 };
 
 fn checkExtensionSupport() void {
@@ -40,40 +39,36 @@ fn checkExtensionSupport() void {
 }
 
 fn internalLoadFunc(ctx: InternalLoadContext, name: [:0]const u8) ?glFunctionPointer {
-    const wglPtr = ctx.loadFunc(void{}, name);
-    if (wglPtr) |ptr| {
-        return ptr;
-    } else {
-        return ctx.lib.lookup(glFunctionPointer, name);
-    }
+    const wglPtr = ctx.loadFunc(name);
+    return wglPtr;
 }
 
-pub fn init(comptime loadFunc: fn (void, [:0]const u8) ?glFunctionPointer) !void {
+pub fn init(comptime loadFunc: fn ([*:0]const u8) ?glFunctionPointer) !void {
     if (env.lib != null) return;
 
-    env.lib = try std.DynLib.open("opengl32.dll");
+    env.lib = try std.DynLib.open("opengl32");
     try env.requiredExtensions.append(.{ .name = "GL_ARB_sparse_texture", .isSupported = false });
     try env.requiredExtensions.append(.{ .name = "GL_ARB_bindless_texture", .isSupported = false });
     try env.requiredExtensions.append(.{ .name = "GL_NV_mesh_shader", .isSupported = false });
     try env.requiredExtensions.append(.{ .name = "GL_EXT_semaphore", .isSupported = false });
 
-    try gl.load(InternalLoadContext{ .lib = &env.lib.?, .loadFunc = loadFunc }, internalLoadFunc);
+    try gl.load(InternalLoadContext{ .loadFunc = loadFunc }, internalLoadFunc);
     checkExtensionSupport();
 
     if (env.requiredExtensions.buffer[0].isSupported) {
-        try gl.GL_ARB_sparse_texture.load(InternalLoadContext{ .lib = &env.lib.?, .loadFunc = loadFunc }, internalLoadFunc);
+        try gl.GL_ARB_sparse_texture.load(InternalLoadContext{ .loadFunc = loadFunc }, internalLoadFunc);
     }
 
     if (env.requiredExtensions.buffer[1].isSupported) {
-        try gl.GL_ARB_bindless_texture.load(InternalLoadContext{ .lib = &env.lib.?, .loadFunc = loadFunc }, internalLoadFunc);
+        try gl.GL_ARB_bindless_texture.load(InternalLoadContext{ .loadFunc = loadFunc }, internalLoadFunc);
     }
 
     if (env.requiredExtensions.buffer[2].isSupported) {
-        try gl.GL_NV_mesh_shader.load(InternalLoadContext{ .lib = &env.lib.?, .loadFunc = loadFunc }, internalLoadFunc);
+        try gl.GL_NV_mesh_shader.load(InternalLoadContext{ .loadFunc = loadFunc }, internalLoadFunc);
     }
 
     if (env.requiredExtensions.buffer[3].isSupported) {
-        try gl.GL_EXT_semaphore.load(InternalLoadContext{ .lib = &env.lib.?, .loadFunc = loadFunc }, internalLoadFunc);
+        try gl.GL_EXT_semaphore.load(InternalLoadContext{ .loadFunc = loadFunc }, internalLoadFunc);
     }
 
     gl.enable(gl.DEBUG_OUTPUT);
