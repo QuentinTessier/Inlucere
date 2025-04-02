@@ -1,7 +1,9 @@
 const std = @import("std");
+const builtin = @import("builtin");
 pub const gl = @import("gl4_6.zig");
 pub const Device = @import("Device.zig");
 pub const DebugMessenger = @import("Debug/Messenger.zig");
+pub const Examples = @import("Examples/examples.zig");
 
 pub const glFunctionPointer = gl.FunctionPointer;
 
@@ -46,7 +48,13 @@ fn internalLoadFunc(ctx: InternalLoadContext, name: [:0]const u8) ?glFunctionPoi
 pub fn init(comptime loadFunc: fn ([*:0]const u8) ?glFunctionPointer) !void {
     if (env.lib != null) return;
 
-    env.lib = try std.DynLib.open("opengl32");
+    if (builtin.target.os.tag == .windows) {
+        env.lib = try std.DynLib.open("opengl32");
+    } else if (builtin.target.os.tag == .linux) {
+        env.lib = try std.DynLib.open("libGL.so.1");
+    } else {
+        @panic("Unsupported OS, file a issue or pull request to fix !");
+    }
     try env.requiredExtensions.append(.{ .name = "GL_ARB_sparse_texture", .isSupported = false });
     try env.requiredExtensions.append(.{ .name = "GL_ARB_bindless_texture", .isSupported = false });
     try env.requiredExtensions.append(.{ .name = "GL_NV_mesh_shader", .isSupported = false });

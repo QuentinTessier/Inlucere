@@ -24,6 +24,13 @@ const Fence = @import("./Resources/Fence.zig");
 pub const Device = @This();
 pub const DeviceLogger = std.log.scoped(.Device);
 
+const BufferType = enum {
+    Uniform,
+    ShaderStorage,
+    Texture,
+    TransfromFeedback,
+};
+
 const Pipeline = union(enum) {
     Graphic: []const u8,
     Compute: []const u8,
