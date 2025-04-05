@@ -3,7 +3,7 @@ const builtin = @import("builtin");
 pub const gl = @import("gl4_6.zig");
 pub const Device = @import("Device.zig");
 pub const DebugMessenger = @import("Debug/Messenger.zig");
-pub const Examples = @import("Examples/examples.zig");
+//pub const Examples = @import("Examples/examples.zig");
 
 pub const glFunctionPointer = gl.FunctionPointer;
 

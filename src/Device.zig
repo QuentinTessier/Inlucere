@@ -1,25 +1,29 @@
 const std = @import("std");
 const gl = @import("gl4_6.zig");
 
-const DeviceLimit = @import("./Resources/DeviceLimits.zig");
+const DeviceLimit = @import("Resources/DeviceLimits.zig");
 
-const Element = @import("./Resources/Element.zig").Element;
-pub const Program = @import("./Pipeline/Program.zig");
-pub const GraphicPipeline = @import("./Pipeline/Graphic.zig");
-pub const ComputePipeline = @import("./Pipeline/Compute.zig");
-pub const Buffer = @import("./Resources/Buffer/Buffer.zig");
-pub const MappedBuffer = @import("./Resources/Buffer/MappedBuffer.zig");
-pub const DynamicBuffer = @import("./Resources/Buffer/DynamicBuffer.zig");
-pub const StaticBuffer = @import("./Resources/Buffer/StaticBuffer.zig");
-pub const Texture = @import("./Resources/Texture/Texture.zig");
-pub const Texture2D = @import("./Resources/Texture/Texture2D.zig");
-pub const TextureCube = @import("./Resources/Texture/TextureCube.zig");
-pub const BindlessTexture = @import("./Resources/Texture/BindlessTexture.zig");
-pub const Framebuffer = @import("./Resources/Framebuffer2.zig");
-const VertexArrayObject = @import("./Resources/VertexArrayObject.zig");
+pub const Program = @import("Pipeline/Program.zig");
+pub const GraphicPipeline = @import("Pipeline/Graphic.zig");
+pub const ComputePipeline = @import("Pipeline/Compute.zig");
 
-const MemoryBarrier = @import("./Resources/MemoryBarrier.zig");
-const Fence = @import("./Resources/Fence.zig");
+pub const Buffer = @import("Resources/Buffer/Buffer.zig");
+pub const MappedBuffer = @import("Resources/Buffer/MappedBuffer.zig");
+pub const DynamicBuffer = @import("Resources/Buffer/DynamicBuffer.zig");
+pub const StaticBuffer = @import("Resources/Buffer/StaticBuffer.zig");
+
+pub const Texture = @import("Resources/Texture/Texture.zig");
+pub const Texture2D = @import("Resources/Texture/Texture2D.zig");
+pub const TextureCube = @import("Resources/Texture/TextureCube.zig");
+pub const BindlessTexture = @import("Resources/Texture/BindlessTexture.zig");
+
+pub const Framebuffer = @import("Resources/Framebuffer2.zig");
+
+const VertexArrayObject = @import("Resources/VertexArrayObject.zig");
+const Element = @import("Resources/Element.zig").Element;
+
+const MemoryBarrier = @import("Resources/MemoryBarrier.zig");
+const Fence = @import("Resources/Fence.zig");
 
 pub const Device = @This();
 pub const DeviceLogger = std.log.scoped(.Device);

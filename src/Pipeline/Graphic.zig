@@ -4,8 +4,6 @@ const Program = @import("Program.zig");
 
 const DeviceLogger = @import("../Device.zig").DeviceLogger;
 
-const Buffer = @import("../Resources/Buffer.zig");
-
 pub const PipelineVertexInputState = @import("./State/VertexInput.zig");
 pub const PipelineInputAssemblyState = @import("./State/InputAssembly.zig");
 pub const PipelineRasterizationState = @import("./State/Rasterization.zig");
