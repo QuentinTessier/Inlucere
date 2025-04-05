@@ -1,6 +1,6 @@
 const std = @import("std");
 const gl = @import("../../gl4_6.zig");
-const Buffer = @import("../Buffer.zig");
+const Buffer = @import("Buffer.zig");
 
 const DeviceLogger = @import("../../Device.zig").DeviceLogger;
 

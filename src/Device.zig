@@ -7,10 +7,10 @@ const Element = @import("./Resources/Element.zig").Element;
 pub const Program = @import("./Pipeline/Program.zig");
 pub const GraphicPipeline = @import("./Pipeline/Graphic.zig");
 pub const ComputePipeline = @import("./Pipeline/Compute.zig");
-pub const Buffer = @import("./Resources/Buffer.zig");
+pub const Buffer = @import("./Resources/Buffer/Buffer.zig");
 pub const MappedBuffer = @import("./Resources/Buffer/MappedBuffer.zig");
-pub const DynamicBuffer = @import("./Resources/DynamicBuffer.zig");
-pub const StaticBuffer = @import("./Resources/StaticBuffer.zig");
+pub const DynamicBuffer = @import("./Resources/Buffer/DynamicBuffer.zig");
+pub const StaticBuffer = @import("./Resources/Buffer/StaticBuffer.zig");
 pub const Texture = @import("./Resources/Texture/Texture.zig");
 pub const Texture2D = @import("./Resources/Texture/Texture2D.zig");
 pub const TextureCube = @import("./Resources/Texture/TextureCube.zig");
@@ -35,6 +35,9 @@ const Pipeline = union(enum) {
     Graphic: []const u8,
     Compute: []const u8,
 };
+
+// TODO: Fetching Pipelines by name can be quite expensive and discourage storing Pipeline in relevant locations, find a way to allow passing a
+// *GraphicPipeline to Device.bindGraphicPipeline()
 
 allocator: std.mem.Allocator,
 limits: DeviceLimit,
