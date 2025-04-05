@@ -8,7 +8,7 @@ pub const Program = @import("./Pipeline/Program.zig");
 pub const GraphicPipeline = @import("./Pipeline/Graphic.zig");
 pub const ComputePipeline = @import("./Pipeline/Compute.zig");
 pub const Buffer = @import("./Resources/Buffer.zig");
-pub const MappedBuffer = @import("./Resources/MappedBuffer.zig");
+pub const MappedBuffer = @import("./Resources/Buffer/MappedBuffer.zig");
 pub const DynamicBuffer = @import("./Resources/DynamicBuffer.zig");
 pub const StaticBuffer = @import("./Resources/StaticBuffer.zig");
 pub const Texture = @import("./Resources/Texture/Texture.zig");
@@ -80,6 +80,11 @@ pub fn init(self: *Device, allocator: std.mem.Allocator) !void {
     self.swapchainExtent = .{ .x = 0, .y = 0, .width = 0, .height = 0 };
     self.currentFramebuffer = null;
     self.textureSlots = [1]u32{0} ** 8;
+
+    const renderer = gl.getString(gl.RENDERER) orelse "null";
+    const vendor = gl.getString(gl.VENDOR) orelse "null";
+    const version = gl.getString(gl.VERSION) orelse "null";
+    DeviceLogger.info("Running {s} on {s} {s}", .{ version, renderer, vendor });
 }
 
 pub fn deinit(self: *Device) void {
