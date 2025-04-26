@@ -585,3 +585,11 @@ pub fn dispatch(self: *const Device, x: u32, y: u32, z: u32) void {
 
     gl.dispatchCompute(x, y, z);
 }
+
+pub fn fence(_: *const Device) Fence {
+    return .init();
+}
+
+pub fn destroyFence(_: *const Device, f: Fence) void {
+    f.deinit();
+}
