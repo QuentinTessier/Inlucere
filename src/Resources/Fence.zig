@@ -2,7 +2,7 @@ const gl = @import("../gl4_6.zig");
 
 pub const Fence = @This();
 
-handle: gl.GLSync,
+handle: gl.GLsync,
 
 pub fn init() Fence {
     return .{
