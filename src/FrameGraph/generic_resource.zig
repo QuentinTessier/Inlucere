@@ -22,6 +22,7 @@ pub fn Storage(comptime DataType_: type, comptime DescriptionType_: type) type {
                 DescriptionType_.destroy_resource(allocator, entry.value_ptr);
             }
             self.managed_resources.deinit(allocator);
+            self.imported_resources.deinit(allocator);
             self.descriptions.deinit(allocator);
         }
 
