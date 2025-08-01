@@ -7,6 +7,26 @@ pub const ResourceReference = struct {
     version: u32,
 };
 
+// ------- Example -------
+// const ResourceKind = enum { buffer, texture };
+// const Buffer = struct { ... };
+// const BufferDescription = struct {
+//      pub fn create_resource(std.mem.Allocator, *const @This()) !Buffer {...}
+//      pub fn destroy_resource(std.mem.Allocator, *const Buffer) void {...}
+// }
+//
+// const Texture = struct { ... };
+// const TextureDescription = struct {
+//      pub fn create_resource(std.mem.Allocator, *const @This()) !Texture {...}
+//      pub fn destroy_resource(std.mem.Allocator, *const Texture) void {...}
+// }
+//
+// const FrameGrapg(ResourceKind, &.{
+//      GenericResource(ResourceKind, .buffer, Buffer, BufferDescription),
+//      GenericResource(ResourceKind, .texture, Texture, TextureDescription),
+// })
+//------- Example -------
+
 pub fn GenericFrameGraph(comptime ResourceEnum: type, comptime ResourceArray: std.EnumArray(ResourceEnum, type)) type {
     return struct {
         pub const ResourceStorage = GenericResource.GenericResourceStorage(ResourceEnum, ResourceArray);
