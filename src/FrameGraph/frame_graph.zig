@@ -2,7 +2,17 @@ const std = @import("std");
 const Resource = @import("Resource.zig");
 const Pass = @import("Pass.zig");
 const gl = @import("../gl4_6.zig");
+pub const GenericResource = @import("generic_resource.zig");
 
+// TODO:    Added imported + managed resources
+//          Imported: Allows the user to declare a immutable resource in the graph that come from an outside scope
+//          Managed: Graph owns the resource and is responsible for its lifetime, aliasing, ...
+// TODO:    Change type of execution_order to [][]u32
+// TODO:    Define how Pass execute code
+// TODO:    Figure out how to add the right barriers between execution levels
+// TODO:    Make Resource a generic type to make declaring new type of resources easier (Good for multi-backend but also custom buffer types and more)
+// TODO:    FrameGraph.compile should construct all the required Framebuffer, this could be done using a post-compile callback.
+// TODO:
 pub const FrameGraph = @This();
 
 allocator: std.mem.Allocator,
@@ -213,3 +223,57 @@ fn topological_sort(self: *FrameGraph) !bool {
 pub fn compile(self: *FrameGraph) !bool {
     return self.topological_sort();
 }
+
+// Simple example code, in a comment for now will be moved in its own example file later.
+//
+// var fg = Inlucere.FrameGraph.init(allocator);
+// defer fg.deinit();
+
+// const r1 = try fg.declare_resource("r1", .{ .buffer = .{
+//     .size = 32,
+//     .stride = 8,
+// } });
+
+// const r2 = try fg.declare_resource("r2", .{ .buffer = .{
+//     .size = 32,
+//     .stride = 8,
+// } });
+
+// const r1_v1 = fg.current_version(r1);
+// const r2_v1 = fg.current_version(r2);
+
+// const r1_v2 = fg.new_version(r1);
+// const r2_v2 = fg.new_version(r2);
+
+// const p1 = try fg.declare_pass("p1");
+
+// try fg.pass_reads_writes(p1, .{
+//     .read = r1_v1,
+//     .write = r1_v2,
+// });
+
+// const p2 = try fg.declare_pass("p2");
+// try fg.pass_reads_writes(p2, .{
+//     .read = r2_v1,
+//     .write = r2_v2,
+// });
+
+// const p3 = try fg.declare_pass("p3");
+// try fg.pass_reads_from(p3, r1_v2);
+// try fg.pass_reads_from(p3, r2_v2);
+
+// if (try fg.compile()) {
+//     const levels = @as([]std.ArrayListUnmanaged(u32), fg.execution_order.items);
+//     for (levels) |level| {
+//         std.debug.print("[ ", .{});
+//         for (level.items, 0..) |pass_id, i| {
+//             const pass = fg.passes.get(pass_id);
+//             if (i < level.items.len - 1) {
+//                 std.debug.print("{s}, ", .{if (pass) |p| p.name else "null"});
+//             } else {
+//                 std.debug.print("{s}", .{if (pass) |p| p.name else "null"});
+//             }
+//         }
+//         std.debug.print(" ]\n", .{});
+//     }
+// }

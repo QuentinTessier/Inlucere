@@ -89,6 +89,10 @@ pub fn GenericResourceStorage(comptime ResourceEnum: type, comptime ResourceArra
     return struct {
         storages: std.EnumArray(ResourceEnum, TypedEraseStorage),
 
+        pub fn GetResourceTypeByEnum(comptime Kind: ResourceEnum) type {
+            return ResourceArray.get(Kind);
+        }
+
         pub fn init(allocator: std.mem.Allocator) !@This() {
             var storages: std.EnumArray(ResourceEnum, TypedEraseStorage) = .initUndefined();
 
@@ -117,7 +121,14 @@ pub fn GenericResourceStorage(comptime ResourceEnum: type, comptime ResourceArra
             }
         }
 
-        pub fn getStorage(self: *@This(), comptime kind: ResourceEnum) *Storage(ResourceArray.get(kind).DataType, ResourceArray.get(kind).DescriptionType) {
+        pub fn GetStorageTypeByEnum(comptime Kind: ResourceEnum) type {
+            const data_type: type = ResourceArray.get(Kind).DataType;
+            const desc_type: type = ResourceArray.get(Kind).DescriptionType;
+
+            return Storage(data_type, desc_type);
+        }
+
+        pub fn getStorage(self: *@This(), comptime kind: ResourceEnum) *GetStorageTypeByEnum(kind) {
             return self.storages.getPtr(kind).cast(ResourceArray.get(kind).DataType, ResourceArray.get(kind).DescriptionType);
         }
     };
