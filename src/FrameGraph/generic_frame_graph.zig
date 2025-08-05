@@ -8,23 +8,29 @@ pub const ResourceReference = struct {
 };
 
 // ------- Example -------
-// const ResourceKind = enum { buffer, texture };
+// const ResourceKind = enum { buffer, texture, color_attachment, depth_attachment, depth_stencil_attachment };
 // const Buffer = struct { ... };
 // const BufferDescription = struct {
 //      pub fn create_resource(std.mem.Allocator, *const @This()) !Buffer {...}
 //      pub fn destroy_resource(std.mem.Allocator, *const Buffer) void {...}
-// }
+// };
 //
 // const Texture = struct { ... };
 // const TextureDescription = struct {
 //      pub fn create_resource(std.mem.Allocator, *const @This()) !Texture {...}
 //      pub fn destroy_resource(std.mem.Allocator, *const Texture) void {...}
-// }
+// };
+//
+// const ColorAttachment = struct { ... };
+// const ColorAttachmentDescription = struct {
+//      pub fn create_resource(std.mem.Allocator, *const @This()) !ColorAttachment {...}
+//      pub fn destroy_resource(std.mem.Allocator, *const ColorAttachment) void {...}
+// };
 //
 // const FrameGraph = FrameGraph(ResourceKind, &.{
 //      GenericResource(ResourceKind, .buffer, Buffer, BufferDescription),
 //      GenericResource(ResourceKind, .texture, Texture, TextureDescription),
-// });
+// }, .{ .automatic_framebuffer_creation = true }); // If .automatic_framebuffer_creation is turned on, will look for resources type ColorAttachment, DepthAttachment and DepthStencilAttachment
 //
 // void main() {
 //      ...
@@ -33,11 +39,21 @@ pub const ResourceReference = struct {
 //      const uniform_buffer_id = try fg.declare_managed(.buffer, .{ .size = 128, .stride = 16 });
 //      const uniform_buffer_v1 = try fg.current_version(uniform_buffer_id);
 //      const uniform_buffer_v2 = try fg.new_version(uniform_buffer_id);
+//      const color_id = try fg.declare_managed(.color_attachment, .{ .texture_id = ... });
+//      const pass_builder = try fg.declare_pass("pbr_resolve");
+//      pass_builder.read(shadow_map);
+//      pass_builder.read_color_attachment(0, albedo_gbuffer_v1, .keep());
+//      pass_builder.read_color_attachment(1, normal_gbuffer_v1, .keep());
+//      pass_builder.read_depth_attachment(2, depth_gbuffer_v1, .keep());
+//
+//      pass_builder.write_color_attachment(0, albedo_gbuffer_v2, .keep());
+//      pass_builder.write_color_attachment(1, normal_gbuffer_v2, .keep());
+//      pass_builder.write_depth_attachment(2, depth_gbuffer_v2, .keep());
+//      fg.compile(.{ .build_fbos = true });
 // }
 //------- Example -------
 
-// TODO: Add code execution
-// TODO: Figure out how to manage Pipeline using a Pass
+// TODO: Add a PassBuilder type responsible to create the underlying pass representation and gather all needed resources. (see example above)
 pub const Pass = struct {
     name: []u8,
     read_resources: std.ArrayListUnmanaged(ResourceReference),

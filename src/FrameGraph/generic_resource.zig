@@ -85,6 +85,11 @@ pub fn GenericResource(comptime ResourceEnum: type, comptime Tag_: ResourceEnum,
     };
 }
 
+// TODO:    Rework to have a level of indirection from handles to physical resource. So the implementation of aliasing isn't to painful.
+//          Only managed resource can be aliased, for debugging should add quite a bit of logging.
+// Revision:    Predefine resources type (StaticBuffer, RingBuffer, Texture2D, ...), if the user wants to define a resource type, he can use the type UnknownResource{ ptr: ?*anyopaque = null }
+//              This allows to know what type we are working on and how to access them (ZLS can help user better). Let complexity at comptime.
+//              Simplify FBO creation and resource aliasing.
 pub fn GenericResourceStorage(comptime ResourceEnum: type, comptime ResourceArray: std.EnumArray(ResourceEnum, type)) type {
     return struct {
         storages: std.EnumArray(ResourceEnum, TypedEraseStorage),
