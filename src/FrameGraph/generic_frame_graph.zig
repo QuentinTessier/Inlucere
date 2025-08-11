@@ -40,15 +40,16 @@ pub const ResourceReference = struct {
 //      const uniform_buffer_v1 = try fg.current_version(uniform_buffer_id);
 //      const uniform_buffer_v2 = try fg.new_version(uniform_buffer_id);
 //      const color_id = try fg.declare_managed(.color_attachment, .{ .texture_id = ... });
-//      const pass_builder = try fg.declare_pass("pbr_resolve");
-//      pass_builder.read(shadow_map);
-//      pass_builder.read_color_attachment(0, albedo_gbuffer_v1, .keep());
-//      pass_builder.read_color_attachment(1, normal_gbuffer_v1, .keep());
-//      pass_builder.read_depth_attachment(2, depth_gbuffer_v1, .keep());
+//      const pass_builder: PassBuilder = .init(allocator, "geometry");
+//      try pass_builder.read(shadow_map);
+//      try pass_builder.read_color_attachment(0, albedo_gbuffer_v1, .keep());
+//      try pass_builder.read_color_attachment(1, normal_gbuffer_v1, .keep());
+//      try pass_builder.read_depth_attachment(2, depth_gbuffer_v1, .keep());
 //
-//      pass_builder.write_color_attachment(0, albedo_gbuffer_v2, .keep());
-//      pass_builder.write_color_attachment(1, normal_gbuffer_v2, .keep());
-//      pass_builder.write_depth_attachment(2, depth_gbuffer_v2, .keep());
+//      try pass_builder.write_color_attachment(0, albedo_gbuffer_v2, .keep());
+//      try pass_builder.write_color_attachment(1, normal_gbuffer_v2, .keep());
+//      try pass_builder.write_depth_attachment(2, depth_gbuffer_v2, .keep());
+//      fg.declare_pass(&pass_builder);
 //      fg.compile(.{ .build_fbos = true });
 // }
 //------- Example -------
@@ -226,7 +227,7 @@ pub fn GenericFrameGraph(comptime ResourceEnum: type, comptime ResourceArray: st
                 version.* += 1;
                 return ResourceReference{
                     .id = identifier,
-                    .version = version,
+                    .version = version.*,
                 };
             } else {
                 return error.NotSuchResource;
