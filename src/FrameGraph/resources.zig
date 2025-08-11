@@ -1,7 +1,7 @@
 const std = @import("std");
 const Device = @import("../Device.zig");
 
-pub const ResourceKind = enum {
+pub const ResourceKind = enum(u16) {
     buffer,
     texture2d,
     custom,
@@ -37,13 +37,15 @@ pub const BufferDescription = struct {
         };
     }
 
-    pub fn construct(self: *const BufferDescription) !Device.DynamicBuffer {
+    pub fn construct(self: *const BufferDescription) !Device.Buffer {
         if (self.default_data) |default_data| {
             std.debug.assert(default_data.len == self.size);
-            return Device.DynamicBuffer.init(self.name, default_data, self.stride);
+            const b = try Device.DynamicBuffer.init(self.name, default_data, self.stride);
+            return b.toBuffer();
         } else {
             std.debug.assert(self.size != 0 and self.stride != 0);
-            return Device.DynamicBuffer.initEmpty(self.name, self.size, self.stride);
+            const b = try Device.DynamicBuffer.initEmpty(self.name, self.size, self.stride);
+            return b.toBuffer();
         }
     }
 };
@@ -74,8 +76,9 @@ pub const ResourceDescription = union(ResourceKind) {
 };
 
 pub const VirtualResource = struct {
-    id: u32,
-    version: u32,
+    id: u16,
+    version: u16,
+    kind: ResourceKind,
 };
 
 pub fn Storage(comptime Enum: ResourceKind, comptime ResourceType: type, comptime ResourceDesc: type) type {
@@ -87,9 +90,9 @@ pub fn Storage(comptime Enum: ResourceKind, comptime ResourceType: type, comptim
             imported: ResourceDesc,
         };
 
-        aliasing: std.AutoHashMapUnmanaged(u32, u32),
-        descriptions: std.AutoHashMapUnmanaged(u32, Description),
-        resources: std.AutoArrayHashMapUnmanaged(u32, ResourceType),
+        aliasing: std.AutoHashMapUnmanaged(u16, u16),
+        descriptions: std.AutoHashMapUnmanaged(u16, Description),
+        resources: std.AutoArrayHashMapUnmanaged(u16, ResourceType),
 
         pub fn init() @This() {
             return .{
@@ -115,18 +118,18 @@ pub fn Storage(comptime Enum: ResourceKind, comptime ResourceType: type, comptim
             self.aliasing.deinit(allocator);
         }
 
-        pub fn declare_managed(self: *@This(), allocator: std.mem.Allocator, id: u32, description: ResourceDesc) !void {
+        pub fn declare_managed(self: *@This(), allocator: std.mem.Allocator, id: u16, description: ResourceDesc) !void {
             try self.descriptions.put(allocator, id, .{ .managed = description });
         }
 
-        pub fn declare_imported(self: *@This(), allocator: std.mem.Allocator, id: u32, resource: ResourceType, description: ?ResourceDesc) !void {
+        pub fn declare_imported(self: *@This(), allocator: std.mem.Allocator, id: u16, resource: ResourceType, description: ?ResourceDesc) !void {
             try self.resources.put(allocator, id, resource);
             if (description) |_| {
                 try self.descriptions.put(allocator, id, .{ .imported = void{} });
             }
         }
 
-        pub fn get_resource(self: *@This(), id: u32) ?ResourceType {
+        pub fn get_resource(self: *@This(), id: u16) ?ResourceType {
             if (self.aliasing.get(id)) |aliased_id| {
                 return self.resources.get(aliased_id);
             } else {
@@ -134,7 +137,7 @@ pub fn Storage(comptime Enum: ResourceKind, comptime ResourceType: type, comptim
             }
         }
 
-        pub fn get_description(self: *@This(), id: u32) ?*ResourceDescription {
+        pub fn get_description(self: *@This(), id: u16) ?*ResourceDescription {
             return self.descriptions.getPtr(id);
         }
 
@@ -156,15 +159,15 @@ pub fn Storage(comptime Enum: ResourceKind, comptime ResourceType: type, comptim
             }
         }
 
-        pub fn is_managed(self: *@This(), id: u32) bool {
+        pub fn is_managed(self: *@This(), id: u16) bool {
             return if (self.descriptions.get(id)) |desc| desc == .managed else false;
         }
 
-        pub fn is_imported(self: *@This(), id: u32) bool {
+        pub fn is_imported(self: *@This(), id: u16) bool {
             return if (self.descriptions.get(id)) |desc| desc == .imported else false;
         }
 
-        pub fn build_resource(self: *@This(), allocator: std.mem.Allocator, id: u32) !bool {
+        pub fn build_resource(self: *@This(), allocator: std.mem.Allocator, id: u16) !bool {
             const actual_id = if (self.aliasing.get(id)) |i| i else id;
             if (self.resources.contains(actual_id)) {
                 return true;

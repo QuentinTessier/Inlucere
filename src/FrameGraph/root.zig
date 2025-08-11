@@ -6,24 +6,100 @@ const Pass = PassBuilder.Pass;
 
 pub const FrameGraph = @This();
 
-allocator: std.mem.Allocator,
-next_item_id: u32,
+// Quick example to render a triangle, shaders is the same has DefaultTriangleExample
+// We do not use pass color attachment at the moment. Swapchain is represented by a empty resource to manage dependency.
+// %--------------------------------------------------------------------------------%
+// var fg: Inlucere.FrameGraph = .init(allocator);
+// defer fg.deinit();
+//
+// const swapchain = try fg.declare_custom_resource(null);
+// const triangle_vertices = try fg.declare_managed_buffer(.fromBytes("triangle_vertices", std.mem.sliceAsBytes(&cpu_vertices), @sizeOf(f32) * 3));
+//
+// const swapchain_v1 = try fg.get_version(swapchain);
+// const swapchain_v2 = try fg.declare_new_version(swapchain);
+// const swapchain_v3 = try fg.declare_new_version(swapchain);
+//
+// const triangle_vertices_v1 = try fg.get_version(triangle_vertices);
+//
+// var clear_pass_builder = try Inlucere.FrameGraph.PassBuilder.init(allocator, "clear_swapchain", struct {
+//     pub fn inline_callback(_: *Inlucere.FrameGraph, d: *Inlucere.Device, _: *Inlucere.FrameGraph.PassBuilder.Pass) !void {
+//         d.clearSwapchain(.{
+//             .colorLoadOp = .clear,
+//         });
+//     }
+// }.inline_callback);
+// _ = try clear_pass_builder.read(allocator, swapchain_v1);
+// _ = try clear_pass_builder.write(allocator, swapchain_v2);
+// _ = try fg.declare_pass(try clear_pass_builder.finalize(allocator));
+//
+// var default_triangle_pass = try Inlucere.FrameGraph.PassBuilder.init(allocator, "default_triangle", struct {
+//     pub fn inline_callback(graph: *Inlucere.FrameGraph, d: *Inlucere.Device, pass: *Inlucere.FrameGraph.PassBuilder.Pass) !void {
+//         // TODO: Better way
+//         const vertex_buffer_id = pass.virtual_resource_read[1].id;
+//         const buffer = graph.buffer_storage.get_resource(vertex_buffer_id) orelse unreachable;
+//         if (d.bindGraphicPipeline("DefaultTriangle")) {
+//             d.bindVertexBuffer(0, buffer.toBuffer(), 0, null);
+//             d.draw(0, 3, 1, 0);
+//         }
+//     }
+// }.inline_callback);
+// _ = try default_triangle_pass.read(allocator, swapchain_v2);
+// _ = try default_triangle_pass.read(allocator, triangle_vertices_v1);
+// _ = try default_triangle_pass.write(allocator, swapchain_v3);
+// _ = try fg.declare_pass(try default_triangle_pass.finalize(allocator));
+//
+// _ = try device.loadShader("DefaultTriangleProgram", &.{
+//     .{
+//         .source = @embedFile("./shaders/default_triangle.vert"),
+//         .stage = .Vertex,
+//     },
+//     .{
+//         .source = @embedFile("./shaders/default_triangle.frag"),
+//         .stage = .Fragment,
+//     },
+// });
+//
+// _ = try device.createGraphicPipeline("DefaultTriangle", &.{
+//     .programs = &.{
+//         "DefaultTriangleProgram",
+//     },
+//     .vertexInputState = .{ .vertexAttributeDescription = &.{
+//         .{ .location = 0, .binding = 0, .inputType = .vec3 },
+//     } },
+// });
+//
+// if (!try fg.compile()) {
+//     std.log.err("Failed to compile", .{});
+//     return;
+// }
+//
+// while (!window.shouldClose()) {
+//     glfw.pollEvents();
+//     try fg.execute(&device);
+//     window.swapBuffers();
+// }
 
-resource_version: std.AutoHashMapUnmanaged(u32, u32),
-resource_kind: std.AutoHashMapUnmanaged(u32, Resource.ResourceKind),
-buffer_storage: Resource.Storage(.buffer, Device.DynamicBuffer, Resource.BufferDescription),
+// TODO: Better way to access resource from Pass callback
+// TODO: Use color attachments to build framebuffers
+// TODO: Swapchain integration
+// TODO: Resource aliasing/reuse
+
+allocator: std.mem.Allocator,
+next_item_id: u16,
+
+resource_version: std.AutoHashMapUnmanaged(u16, struct { version: u16, kind: Resource.ResourceKind }),
+buffer_storage: Resource.Storage(.buffer, Device.Buffer, Resource.BufferDescription),
 texture2d_storage: Resource.Storage(.texture2d, Device.Texture2D, Resource.Texture2DDescription),
 custom_resource_storage: Resource.Storage(.custom, ?*anyopaque, void),
 
-passes: std.AutoArrayHashMapUnmanaged(u32, Pass),
-execution_order: ?[][]u32,
+passes: std.AutoArrayHashMapUnmanaged(u16, Pass),
+execution_order: ?[][]u16,
 
 pub fn init(allocator: std.mem.Allocator) FrameGraph {
     return FrameGraph{
         .allocator = allocator,
         .next_item_id = 1,
         .resource_version = .empty,
-        .resource_kind = .empty,
         .buffer_storage = .init(),
         .texture2d_storage = .init(),
         .custom_resource_storage = .init(),
@@ -34,7 +110,6 @@ pub fn init(allocator: std.mem.Allocator) FrameGraph {
 
 pub fn deinit(self: *FrameGraph) void {
     self.resource_version.deinit(self.allocator);
-    self.resource_kind.deinit(self.allocator);
 
     self.buffer_storage.deinit(self.allocator);
     self.texture2d_storage.deinit(self.allocator);
@@ -57,7 +132,7 @@ pub fn deinit(self: *FrameGraph) void {
     }
 }
 
-pub fn declare_pass(self: *FrameGraph, pass: Pass) !u32 {
+pub fn declare_pass(self: *FrameGraph, pass: Pass) !u16 {
     const id = self.next_item_id;
     self.next_item_id += 1;
 
@@ -65,76 +140,87 @@ pub fn declare_pass(self: *FrameGraph, pass: Pass) !u32 {
     return id;
 }
 
-pub fn declare_managed_buffer(self: *FrameGraph, desc: Resource.BufferDescription) !u32 {
+pub fn declare_managed_buffer(self: *FrameGraph, desc: Resource.BufferDescription) !u16 {
     const id = self.next_item_id;
     self.next_item_id += 1;
 
     try self.buffer_storage.declare_managed(self.allocator, id, desc);
-    try self.resource_version.put(self.allocator, id, 0);
-    try self.resource_kind.put(self.allocator, id, .buffer);
+    try self.resource_version.put(self.allocator, id, .{
+        .kind = .buffer,
+        .version = 0,
+    });
     return id;
 }
 
-pub fn declare_imported_buffer(self: *FrameGraph, obj: Device.DynamicBuffer, desc: ?Resource.BufferDescription) !u32 {
+pub fn declare_imported_buffer(self: *FrameGraph, obj: Device.DynamicBuffer, desc: ?Resource.BufferDescription) !u16 {
     const id = self.next_item_id;
     self.next_item_id += 1;
 
     try self.buffer_storage.declare_imported(self.allocator, id, obj, desc);
-    try self.resource_version.put(self.allocator, id, 0);
-    try self.resource_kind.put(self.allocator, id, .buffer);
+    try self.resource_version.put(self.allocator, id, .{
+        .kind = .buffer,
+        .version = 0,
+    });
     return id;
 }
 
-pub fn declare_managed_texture2d(self: *FrameGraph, desc: Resource.Texture2DDescription) !u32 {
+pub fn declare_managed_texture2d(self: *FrameGraph, desc: Resource.Texture2DDescription) !u16 {
     const id = self.next_item_id;
     self.next_item_id += 1;
 
     try self.texture2d_storage.declare_managed(self.allocator, id, desc);
-    try self.resource_version.put(self.allocator, id, 0);
-    try self.resource_kind.put(self.allocator, id, .texture2d);
+    try self.resource_version.put(self.allocator, id, .{
+        .kind = .texture2d,
+        .version = 0,
+    });
     return id;
 }
 
-pub fn declare_imported_texture2d(self: *FrameGraph, obj: Device.Texture2D, desc: ?Resource.Texture2DDescription) !u32 {
+pub fn declare_imported_texture2d(self: *FrameGraph, obj: Device.Texture2D, desc: ?Resource.Texture2DDescription) !u16 {
     const id = self.next_item_id;
     self.next_item_id += 1;
 
     try self.texture2d_storage.declare_imported(self.allocator, id, obj, desc);
-    try self.resource_version.put(self.allocator, id, 0);
-    try self.resource_kind.put(self.allocator, id, .texture2d);
+    try self.resource_version.put(self.allocator, id, .{
+        .kind = .texture2d,
+        .version = 0,
+    });
     return id;
 }
 
-pub fn declare_custom_resource(self: *FrameGraph, obj: ?*anyopaque) !u32 {
+pub fn declare_custom_resource(self: *FrameGraph, obj: ?*anyopaque) !u16 {
     const id = self.next_item_id;
     self.next_item_id += 1;
 
     try self.custom_resource_storage.declare_imported(self.allocator, id, obj, void{});
-    try self.resource_version.put(self.allocator, id, 0);
-    try self.resource_kind.put(self.allocator, id, .custom);
+    try self.resource_version.put(self.allocator, id, .{
+        .kind = .custom,
+        .version = 0,
+    });
     return id;
 }
 
-pub fn get_version(self: *FrameGraph, id: u32) !Resource.VirtualResource {
-    return if (self.resource_version.get(id)) |v| Resource.VirtualResource{ .id = id, .version = v } else error.NoSuchResource;
+pub fn get_version(self: *FrameGraph, id: u16) !Resource.VirtualResource {
+    return if (self.resource_version.get(id)) |v| Resource.VirtualResource{ .id = id, .version = v.version, .kind = v.kind } else error.NoSuchResource;
 }
 
-pub fn declare_new_version(self: *FrameGraph, id: u32) !Resource.VirtualResource {
+pub fn declare_new_version(self: *FrameGraph, id: u16) !Resource.VirtualResource {
     if (self.resource_version.getPtr(id)) |ptr| {
-        ptr.* += 1;
+        ptr.version += 1;
         return Resource.VirtualResource{
             .id = id,
-            .version = ptr.*,
+            .version = ptr.version,
+            .kind = ptr.kind,
         };
     } else {
         return error.NoSuchResource;
     }
 }
 
-pub fn get_resource(self: *FrameGraph, id: u32) !Resource.Resource {
-    const kind = self.resource_kind.get(id) orelse unreachable;
+pub fn get_resource(self: *FrameGraph, id: u16) !Resource.Resource {
+    const t = self.resource_version.get(id) orelse unreachable;
 
-    return switch (kind) {
+    return switch (t.kind) {
         .buffer => Resource.Resource{
             .buffer = self.buffer_storage.get_resource(id) orelse unreachable,
         },
@@ -147,11 +233,11 @@ pub fn get_resource(self: *FrameGraph, id: u32) !Resource.Resource {
     };
 }
 
-fn topological_sort(self: *FrameGraph) !?[][]u32 {
-    var in_degree = std.AutoHashMap(u32, u32).init(self.allocator);
+fn topological_sort(self: *FrameGraph) !?[][]u16 {
+    var in_degree = std.AutoHashMap(u16, u32).init(self.allocator);
     defer in_degree.deinit();
 
-    var adj_list: std.AutoHashMap(u32, std.ArrayList(u32)) = .init(self.allocator);
+    var adj_list: std.AutoHashMap(u16, std.ArrayList(u16)) = .init(self.allocator);
     defer {
         var ite = adj_list.iterator();
         while (ite.next()) |entry| {
@@ -186,13 +272,13 @@ fn topological_sort(self: *FrameGraph) !?[][]u32 {
         }
     }
 
-    var current_level: std.ArrayList(u32) = .init(self.allocator);
+    var current_level: std.ArrayList(u16) = .init(self.allocator);
     defer current_level.deinit();
 
-    var next_level: std.ArrayList(u32) = .init(self.allocator);
+    var next_level: std.ArrayList(u16) = .init(self.allocator);
     defer next_level.deinit();
 
-    var execution_order: std.ArrayList([]u32) = .init(self.allocator);
+    var execution_order: std.ArrayList([]u16) = .init(self.allocator);
     var total_processed: usize = 0;
 
     var in_degree_ite = in_degree.iterator();
@@ -203,7 +289,7 @@ fn topological_sort(self: *FrameGraph) !?[][]u32 {
     }
 
     while (current_level.items.len > 0) {
-        var level: std.ArrayListUnmanaged(u32) = .empty;
+        var level: std.ArrayListUnmanaged(u16) = .empty;
 
         while (current_level.items.len > 0) {
             const current = current_level.orderedRemove(0);
@@ -221,7 +307,7 @@ fn topological_sort(self: *FrameGraph) !?[][]u32 {
         }
 
         try execution_order.append(try level.toOwnedSlice(self.allocator));
-        std.mem.swap(std.ArrayList(u32), &current_level, &next_level);
+        std.mem.swap(std.ArrayList(u16), &current_level, &next_level);
     }
 
     if (total_processed == self.passes.count()) {
@@ -241,8 +327,8 @@ pub fn build_resources(self: *FrameGraph) !void {
             for (level) |pass_id| {
                 const pass = self.passes.get(pass_id) orelse unreachable;
                 for (pass.virtual_resource_read) |r| {
-                    const kind = self.resource_kind.get(r.id) orelse unreachable;
-                    switch (kind) {
+                    const t = self.resource_version.get(r.id) orelse unreachable;
+                    switch (t.kind) {
                         .buffer => _ = try self.buffer_storage.build_resource(self.allocator, r.id),
                         .texture2d => _ = try self.buffer_storage.build_resource(self.allocator, r.id),
                         .custom => {},
@@ -250,8 +336,8 @@ pub fn build_resources(self: *FrameGraph) !void {
                 }
 
                 for (pass.virtual_resource_write) |r| {
-                    const kind = self.resource_kind.get(r.id) orelse unreachable;
-                    switch (kind) {
+                    const t = self.resource_version.get(r.id) orelse unreachable;
+                    switch (t.kind) {
                         .buffer => _ = try self.buffer_storage.build_resource(self.allocator, r.id),
                         .texture2d => _ = try self.buffer_storage.build_resource(self.allocator, r.id),
                         .custom => {},
