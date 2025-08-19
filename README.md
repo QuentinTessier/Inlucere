@@ -3,6 +3,7 @@
 Inlucere (to illuminate in latin) is a wrapper around OpenGL to make use a bit more straight forward. It is the graphics layer for my up coming engin Lucens.
 
 ⚠️ I wouldn't recommend using the project currently, quite a few breaking changes are coming with the development of Lucens.
+
 ⚠️ Current efforts are put towards making Inlucere a full frame graph API ! Hopefully abstracting some of the sync/barrier work and resource management :)
 
 Currently the code isn't documented, I'll get to it soon ! (hopefully)
