@@ -7,6 +7,7 @@ pub const FrameGraph = @This();
 id_counter: u16,
 
 virt_images: std.MultiArrayList(struct {
+    id: Resource.Image.ID,
     base: Resource.Base,
     desc: Resource.Image.Description,
     generation: Resource.Generation,
@@ -14,6 +15,7 @@ virt_images: std.MultiArrayList(struct {
 virt_id_to_img: std.AutoHashMapUnmanaged(Resource.Image.ID, usize),
 
 virt_buffers: std.MultiArrayList(struct {
+    id: Resource.Buffer.ID,
     base: Resource.Base,
     desc: Resource.Buffer.Description,
     generation: Resource.Generation,
@@ -77,9 +79,11 @@ pub fn declare_image(self: *FrameGraph, allocator: std.mem.Allocator, debug_name
     const id = self.next_image_id();
 
     const index = try self.virt_images.addOne(allocator);
+    self.virt_images.items(.id)[index] = id;
     self.virt_images.items(.base)[index] = Resource.Base{
         .debug_name = debug_name,
         .imported = false,
+        .lifetime = undefined,
     };
     self.virt_images.items(.desc)[index] = desc;
     self.virt_images.items(.generation)[index] = .default;
@@ -92,9 +96,11 @@ pub fn declare_buffer(self: *FrameGraph, allocator: std.mem.Allocator, debug_nam
     const id = self.next_buffer_id();
 
     const index = try self.virt_buffers.addOne(allocator);
+    self.virt_buffers.items(.id)[index] = id;
     self.virt_buffers.items(.base)[index] = Resource.Base{
         .debug_name = debug_name,
         .imported = false,
+        .lifetime = undefined,
     };
     self.virt_buffers.items(.desc)[index] = desc;
     self.virt_buffers.items(.generation)[index] = .default;
@@ -113,12 +119,11 @@ pub fn declare_pass(self: *FrameGraph, allocator: std.mem.Allocator, name: []con
     const ptr: *Pass = self.passes.get(id) orelse unreachable;
 
     ptr.name = try allocator.dupe(u8, name);
+    ptr.id = id;
     ptr.owner = self;
     ptr.buffers = .empty;
     ptr.images = .empty;
     ptr.has_side_effects = false;
-
-    std.debug.print("{s} => {*} {*}\n", .{ ptr.name, ptr, ptr.owner });
 
     return .{ .id = id, .pass = ptr };
 }
@@ -189,13 +194,6 @@ fn topological_sort(self: *FrameGraph, allocator: std.mem.Allocator) !?[][]Pass.
         }
     }
 
-    {
-        var ite = in_degree.iterator();
-        while (ite.next()) |entry| {
-            std.log.info("{} => {}", .{ entry.key_ptr.*, entry.value_ptr.* });
-        }
-    }
-
     var current_level: std.ArrayList(Pass.ID) = .init(allocator);
     defer current_level.deinit();
 
@@ -245,6 +243,56 @@ fn topological_sort(self: *FrameGraph, allocator: std.mem.Allocator) !?[][]Pass.
     }
 }
 
+fn compute_resource_lifetime(self: *FrameGraph, exec_order: [][]Pass.ID) void {
+    for (@as([]const Resource.Image.ID, self.virt_images.items(.id)), @as([]Resource.Base, self.virt_images.items(.base))) |id, *base| {
+        var min_level: usize = exec_order.len;
+        var max_level: usize = 0;
+
+        for (exec_order, 0..) |level, i| {
+            for (level) |pass_id| {
+                const pass = self.passes.get(pass_id) orelse unreachable;
+
+                if (pass.has_reference_to_image(id)) {
+                    min_level = @min(min_level, i);
+                    max_level = @max(max_level, i);
+                }
+            }
+        }
+
+        base.lifetime = .{
+            .start_level = @intCast(min_level),
+            .end_level = @intCast(max_level),
+        };
+        std.log.info("{s} => {}", .{ if (base.debug_name != null) base.debug_name.? else "null", base.lifetime });
+    }
+
+    for (@as([]const Resource.Buffer.ID, self.virt_buffers.items(.id)), @as([]Resource.Base, self.virt_buffers.items(.base))) |id, *base| {
+        var min_level: usize = exec_order.len;
+        var max_level: usize = 0;
+
+        for (exec_order, 0..) |level, i| {
+            for (level) |pass_id| {
+                const pass = self.passes.get(pass_id) orelse unreachable;
+
+                if (pass.has_reference_to_buffer(id)) {
+                    min_level = @min(min_level, i);
+                    max_level = @max(max_level, i);
+                }
+            }
+        }
+
+        base.lifetime = .{
+            .start_level = @intCast(min_level),
+            .end_level = @intCast(max_level),
+        };
+        std.log.info("{s} => {}", .{ if (base.debug_name != null) base.debug_name.? else "null", base.lifetime });
+    }
+}
+
 pub fn compile(self: *FrameGraph, allocator: std.mem.Allocator) !?[][]Pass.ID {
-    return self.topological_sort(allocator);
+    if (try self.topological_sort(allocator)) |exec_order| {
+        self.compute_resource_lifetime(exec_order);
+        return exec_order;
+    }
+    return null;
 }

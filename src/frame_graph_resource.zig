@@ -1,6 +1,7 @@
 const std = @import("std");
 pub const Image = @import("frame_graph_image.zig");
 pub const Buffer = @import("frame_graph_buffer.zig");
+const Pass = @import("frame_graph_pass.zig");
 
 pub const Access = packed struct {
     read: bool = false,
@@ -30,9 +31,15 @@ pub const Generation = struct {
     }
 };
 
+pub const Lifetime = struct {
+    start_level: u32,
+    end_level: u32,
+};
+
 pub const Base = struct {
     debug_name: ?[]const u8,
     imported: bool = false,
+    lifetime: Lifetime,
 
     pub fn init(debug_name: ?[]const u8) Base {
         return Base{
