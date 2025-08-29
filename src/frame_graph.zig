@@ -263,7 +263,6 @@ fn compute_resource_lifetime(self: *FrameGraph, exec_order: [][]Pass.ID) void {
             .start_level = @intCast(min_level),
             .end_level = @intCast(max_level),
         };
-        std.log.info("{s} => {}", .{ if (base.debug_name != null) base.debug_name.? else "null", base.lifetime });
     }
 
     for (@as([]const Resource.Buffer.ID, self.virt_buffers.items(.id)), @as([]Resource.Base, self.virt_buffers.items(.base))) |id, *base| {
@@ -285,7 +284,6 @@ fn compute_resource_lifetime(self: *FrameGraph, exec_order: [][]Pass.ID) void {
             .start_level = @intCast(min_level),
             .end_level = @intCast(max_level),
         };
-        std.log.info("{s} => {}", .{ if (base.debug_name != null) base.debug_name.? else "null", base.lifetime });
     }
 }
 
