@@ -34,6 +34,10 @@ pub const Generation = struct {
 pub const Lifetime = struct {
     start_level: u32,
     end_level: u32,
+
+    pub fn can_alias(self: *const Lifetime, other: *const Lifetime) bool {
+        return self.end_level < other.start_level or other.end_level < self.start_level;
+    }
 };
 
 pub const Base = struct {
