@@ -294,3 +294,91 @@ pub fn compile(self: *FrameGraph, allocator: std.mem.Allocator) !?[][]Pass.ID {
     }
     return null;
 }
+
+pub fn debug_dot_graph(self: *const FrameGraph, allocator: std.mem.Allocator, graph_name: []const u8) ![]u8 {
+    var buffer: std.ArrayList(u8) = .init(allocator);
+    const writer = buffer.writer();
+
+    try writer.print("digraph {s} {{\n", .{graph_name});
+
+    for (
+        @as([]Resource.Image.ID, self.virt_images.items(.id)),
+        @as([]Resource.Base, self.virt_images.items(.base)),
+        @as([]Resource.Generation, self.virt_images.items(.generation)),
+    ) |id, base, gen| {
+        if (base.debug_name) |debug_name| {
+            for (1..@intCast(gen.handle)) |g| {
+                try writer.print("\t{s}_{} [shape=ellipse]\n", .{ debug_name, g });
+            }
+        } else {
+            for (1..@intCast(gen.handle)) |g| {
+                try writer.print("\t{}_{} [shape=ellipse]\n", .{ id.handle, g });
+            }
+        }
+    }
+
+    for (
+        @as([]Resource.Buffer.ID, self.virt_buffers.items(.id)),
+        @as([]Resource.Base, self.virt_buffers.items(.base)),
+        @as([]Resource.Generation, self.virt_buffers.items(.generation)),
+    ) |id, base, gen| {
+        if (base.debug_name) |debug_name| {
+            for (1..@intCast(gen.handle)) |g| {
+                try writer.print("\t{s}_{} [shape=octagon]\n", .{ debug_name, g });
+            }
+        } else {
+            for (1..@intCast(gen.handle)) |g| {
+                try writer.print("\t{}_{} [shape=octagon]\n", .{ id.handle, g });
+            }
+        }
+    }
+
+    for (self.passes.values()) |pass| {
+        try writer.print("\t{s} [shape=box];\n", .{pass.name});
+
+        for (@as([]Resource.Image.Reference, pass.images.items)) |img| {
+            const index: usize = self.virt_id_to_img.get(img.id) orelse unreachable;
+            const base: *const Resource.Base = &self.virt_images.items(.base)[index];
+            const id: Resource.Image.ID = self.virt_images.items(.id)[index];
+            if (base.debug_name) |debug_name| {
+                if (img.read()) {
+                    try writer.print("\t{s}_{} -> {s}\n", .{ debug_name, img.read_gen.handle, pass.name });
+                }
+                if (img.write()) {
+                    try writer.print("\t{s} -> {s}_{}\n", .{ pass.name, debug_name, img.write_gen.handle });
+                }
+            } else {
+                if (img.read()) {
+                    try writer.print("\t{}_{} -> {s}\n", .{ id.handle, img.read_gen.handle, pass.name });
+                }
+                if (img.write()) {
+                    try writer.print("\t{s} -> {}_{}\n", .{ pass.name, id.handle, img.write_gen.handle });
+                }
+            }
+        }
+
+        for (@as([]Resource.Buffer.Reference, pass.buffers.items)) |buf| {
+            const index: usize = self.virt_id_to_buf.get(buf.id) orelse unreachable;
+            const base: *const Resource.Base = &self.virt_buffers.items(.base)[index];
+            const id: Resource.Buffer.ID = self.virt_buffers.items(.id)[index];
+            if (base.debug_name) |debug_name| {
+                if (buf.read()) {
+                    try writer.print("\t{s}_{} -> {s}\n", .{ debug_name, buf.read_gen.handle, pass.name });
+                }
+                if (buf.write()) {
+                    try writer.print("\t{s} -> {s}_{}\n", .{ pass.name, debug_name, buf.write_gen.handle });
+                }
+            } else {
+                if (buf.read()) {
+                    try writer.print("\t{}_{} -> {s}\n", .{ id.handle, buf.read_gen.handle, pass.name });
+                }
+                if (buf.write()) {
+                    try writer.print("\t{s} -> {}_{}\n", .{ pass.name, id.handle, buf.write_gen.handle });
+                }
+            }
+        }
+    }
+
+    try writer.print("}}\n", .{});
+    return buffer.toOwnedSlice();
+}
