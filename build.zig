@@ -8,6 +8,8 @@ pub fn build(b: *std.Build) void {
         .target = target,
     });
 
+    const zglfw = b.dependency("zglfw", .{});
+
     const exe = b.addExecutable(.{
         .name = "testbed",
         .root_module = b.createModule(.{
@@ -16,9 +18,14 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .imports = &.{
                 .{ .name = "Inlucere", .module = mod },
+                .{ .name = "glfw", .module = zglfw.module("root") },
             },
         }),
     });
+
+    if (target.result.os.tag != .emscripten) {
+        exe.linkLibrary(zglfw.artifact("glfw"));
+    }
 
     b.installArtifact(exe);
 
