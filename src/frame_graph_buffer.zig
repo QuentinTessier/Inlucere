@@ -28,6 +28,15 @@ pub const Description = struct {
     pub fn eq(self: *const Description, other: *const Description) bool {
         return self.size == other.size;
     }
+
+    pub fn hash(self: *const Description) u64 {
+        var hasher = std.hash.Fnv1a_64.init();
+
+        hasher.update(std.mem.asBytes(&self.size));
+        hasher.update(std.mem.asBytes(&self.stride));
+
+        return hasher.final();
+    }
 };
 
 pub const Reference = struct {

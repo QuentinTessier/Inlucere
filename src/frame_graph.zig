@@ -382,3 +382,5 @@ pub fn debug_dot_graph(self: *const FrameGraph, allocator: std.mem.Allocator, gr
     try writer.print("}}\n", .{});
     return buffer.toOwnedSlice();
 }
+
+pub fn compute_physical_images_allocation(self: *FrameGraph, allocator: std.mem.Allocator) !void {}

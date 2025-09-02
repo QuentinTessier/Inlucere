@@ -128,6 +128,19 @@ pub const Description = struct {
         }
         return res;
     }
+
+    pub fn hash(self: *const Description) u64 {
+        var hasher = std.hash.Fnv1a_64.init();
+
+        hasher.update(std.mem.asBytes(&self.kind));
+        hasher.update(std.mem.asBytes(&self.extent.width));
+        hasher.update(std.mem.asBytes(&self.extent.height));
+        hasher.update(std.mem.asBytes(&self.extent.depth));
+        hasher.update(std.mem.asBytes(&self.format));
+        hasher.update(std.mem.asBytes(&self.samples));
+
+        return hasher.final();
+    }
 };
 
 pub const Reference = struct {
