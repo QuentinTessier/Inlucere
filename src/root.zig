@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const vk = @import("vk.zig");
+pub const vk = @import("vk.zig");
 
 pub const GPUContext = @This();
 
@@ -13,8 +13,8 @@ pub const InitData = struct {
     requested_extensions: []const [*:0]const u8,
 
     user_data: *anyopaque,
-    get_instance_proc_address: *const fn (vk.Instance, [*:0]const u8) ?*anyopaque,
-    create_surface: *const fn (*anyopaque, vk.Instance, *const vk.AllocationCallbacks, *vk.SurfaceKHR) vk.Result,
+    get_instance_proc_address: *const fn (vk.Instance, [*:0]const u8) callconv(.c) ?*anyopaque,
+    create_surface: *const fn (*anyopaque, vk.Instance, ?*const vk.AllocationCallbacks, *vk.SurfaceKHR) vk.Result,
 };
 
 pub const PhysicalDeviceBundle = struct {
@@ -105,4 +105,12 @@ pub fn init(allocator: std.mem.Allocator, init_data: *const InitData) !GPUContex
         return error.FailedToCreateSurface;
     }
     errdefer self.instance.destroySurfaceKHR(self.surface, null);
+}
+
+pub fn deinit(self: *GPUContext) void {
+    self.instance.destroySurfaceKHR(self.surface, null);
+    self.instance.destroyDebugUtilsMessengerEXT(self.debug_messenger, null);
+    self.instance.destroyInstance(null);
+
+    self.allocator.destroy(self.instance.wrapper);
 }

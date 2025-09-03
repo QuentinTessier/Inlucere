@@ -1,13 +1,12 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const glfw = @import("glfw");
-const vk = @import("vk.zig");
 const Inlucere = @import("Inlucere");
 
 var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
 
-extern fn glfwGetInstanceProcAddress(vk.Instance, [*:0]const u8) ?*anyopaque;
-extern fn glfwCreateWindowSurface(vk.Instance, *glfw.Window, *const vk.AllocationCallbacks, *vk.SurfaceKHR) vk.Result;
+extern fn glfwGetInstanceProcAddress(Inlucere.vk.Instance, [*:0]const u8) callconv(.c) ?*anyopaque;
+extern fn glfwCreateWindowSurface(Inlucere.vk.Instance, *glfw.Window, ?*const Inlucere.vk.AllocationCallbacks, *Inlucere.vk.SurfaceKHR) callconv(.c) Inlucere.vk.Result;
 
 pub fn main() !void {
     const allocator, const is_debug = gpa: {
@@ -29,21 +28,22 @@ pub fn main() !void {
 
     const required = try glfw.getRequiredInstanceExtensions();
 
-    var context: Inlucere.GPUContext = .init(allocator, &Inlucere.InitData{
+    var context: Inlucere.GPUContext = try .init(allocator, &Inlucere.InitData{
         .application_name = "testbed",
-        .application_version = @bitCast(vk.makeApiVersion(0, 0, 0, 0)),
+        .application_version = @bitCast(Inlucere.vk.makeApiVersion(0, 0, 0, 0)),
         .engine_name = "testbed",
-        .engine_version = @bitCast(vk.makeApiVersion(0, 0, 0, 0)),
+        .engine_version = @bitCast(Inlucere.vk.makeApiVersion(0, 0, 0, 0)),
         .user_data = window,
         .requested_extensions = required,
         .get_instance_proc_address = glfwGetInstanceProcAddress,
         .create_surface = struct {
-            pub fn inline_create_surface(user_data: *anyopaque, instance: vk.Instance, alloc_callback: *const vk.AllocationCallbacks, surface: *vk.SurfaceKHR) vk.Result {
+            pub fn inline_create_surface(user_data: *anyopaque, instance: Inlucere.vk.Instance, alloc_callback: ?*const Inlucere.vk.AllocationCallbacks, surface: *Inlucere.vk.SurfaceKHR) Inlucere.vk.Result {
                 const w: *glfw.Window = @ptrCast(user_data);
                 return glfwCreateWindowSurface(instance, w, alloc_callback, surface);
             }
         }.inline_create_surface,
     });
+    defer context.deinit();
 
     while (!window.shouldClose()) {
         glfw.pollEvents();
