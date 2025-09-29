@@ -42,7 +42,7 @@ const fragment_shader_source =
     \\void main()
     \\{
     \\    FragColor = vec4(1.0f, 0.5f, 0.2f, 1.0f);
-    \\} 
+    \\}
 ;
 
 pub fn main() !void {
