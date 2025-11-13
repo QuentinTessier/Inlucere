@@ -7,8 +7,6 @@ pub const Stage = enum(u32) {
     TesselationControl = gl.TESS_CONTROL_SHADER,
     TesselationEvaluation = gl.TESS_EVALUATION_SHADER,
 
-    Mesh = gl.GL_NV_mesh_shader.MESH_SHADER_NV,
-
     Compute = gl.COMPUTE_SHADER,
 };
 
@@ -17,9 +15,8 @@ pub const StageBit = packed struct(u32) {
     Fragment: bool = false,
     TesselationControl: bool = false,
     TesselationEvaluation: bool = false,
-    Mesh: bool = false,
     Compute: bool = false,
-    _padding: u26 = 0,
+    _padding: u27 = 0,
 
     pub fn eql(self: StageBit, other: StageBit) bool {
         const s: u32 = @bitCast(self);
@@ -34,7 +31,6 @@ pub const StageBit = packed struct(u32) {
         if (self.Fragment) stages |= gl.FRAGMENT_SHADER_BIT;
         if (self.TesselationControl) stages |= gl.TESS_CONTROL_SHADER_BIT;
         if (self.TesselationEvaluation) stages |= gl.TESS_EVALUATION_SHADER_BIT;
-        if (self.Mesh) stages |= gl.GL_NV_mesh_shader.MESH_SHADER_BIT_NV;
 
         return stages;
     }
@@ -72,7 +68,6 @@ fn setStageBitField(self: *Program, stage: Stage) void {
         .Fragment => self.stage.Fragment = true,
         .TesselationControl => self.stage.TesselationControl = true,
         .TesselationEvaluation => self.stage.TesselationEvaluation = true,
-        .Mesh => self.stage.Mesh = true,
         .Compute => self.stage.Compute = true,
     }
 }
@@ -83,9 +78,10 @@ pub fn init(self: *Program, shaders: []const ShaderSource) !void {
 
     gl.programParameteri(self.handle, gl.PROGRAM_SEPARABLE, gl.TRUE);
 
-    var tmp = std.BoundedArray(u32, 16){};
+    var shader_buffer: [16]u32 = undefined;
+    var tmp = std.array_list.Aligned(u32, null).initBuffer(&shader_buffer);
     defer {
-        for (tmp.constSlice()) |handle| {
+        for (tmp.items) |handle| {
             gl.deleteShader(handle);
         }
     }
@@ -94,7 +90,7 @@ pub fn init(self: *Program, shaders: []const ShaderSource) !void {
 
         try compileShader(n, sh.source);
         self.setStageBitField(sh.stage);
-        try tmp.append(n);
+        try tmp.appendBounded(n);
 
         gl.attachShader(self.handle, n);
     }

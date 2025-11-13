@@ -16,7 +16,7 @@ pub const FramebufferCreateInfo = struct {
 pub const Framebuffer = @This();
 
 handle: u32,
-attachments: std.BoundedArray(Texture, 8),
+attachments: std.ArrayList(Texture),
 depthStencilAttachment: u32,
 
 pub fn init(self: *Framebuffer, createInfo: *const FramebufferCreateInfo) !void {

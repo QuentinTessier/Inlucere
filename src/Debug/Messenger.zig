@@ -31,7 +31,7 @@ pub const MessageSeverity = enum(u32) {
     notification = gl.DEBUG_SEVERITY_NOTIFICATION,
 };
 
-pub fn callback(_source: gl.GLenum, _type: gl.GLenum, id: gl.GLuint, _severity: gl.GLenum, _: gl.GLsizei, message: [*:0]const u8, _: ?*anyopaque) callconv(.C) void {
+pub fn callback(_source: gl.GLenum, _type: gl.GLenum, id: gl.GLuint, _severity: gl.GLenum, _: gl.GLsizei, message: [*:0]const u8, _: ?*anyopaque) callconv(.c) void {
     const source: []const u8 = switch (@as(MessageSource, @enumFromInt(_source))) {
         .api => "Api",
         .window_system => "WindowSystem",

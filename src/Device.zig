@@ -19,7 +19,7 @@ pub const BindlessTexture = @import("Resources/Texture/BindlessTexture.zig");
 
 pub const Framebuffer = @import("Resources/Framebuffer2.zig");
 
-const VertexArrayObject = @import("Resources/VertexArrayObject.zig");
+pub const VertexArrayObject = @import("Resources/VertexArrayObject.zig");
 const Element = @import("Resources/Element.zig").Element;
 
 const MemoryBarrier = @import("Resources/MemoryBarrier.zig");
