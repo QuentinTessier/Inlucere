@@ -1,0 +1,293 @@
+const std = @import("std");
+const gl = @import("../gl4_6.zig");
+
+const ShaderHandle = @import("../Device2.zig").ShaderHandle;
+const TextureFormat = @import("texture.zig").TextureFormat;
+const Device = @import("../Device2.zig");
+
+// Vertex Data
+pub const VertexInputRate = enum {
+    vertex,
+    instance,
+};
+
+pub const VertexFormat = struct {
+    pub const Info = struct {
+        component_type: u32, // gl.FLOAT, gl.HALF_FLOAT, gl.INT, etc.
+        component_count: u32, // 1, 2, 3, 4
+        normalized: bool,
+    };
+
+    pub const f32x1: Info = .{ .component_type = gl.FLOAT, .component_count = 1, .normalized = false };
+    pub const f32x2: Info = .{ .component_type = gl.FLOAT, .component_count = 2, .normalized = false };
+    pub const f32x3: Info = .{ .component_type = gl.FLOAT, .component_count = 3, .normalized = false };
+    pub const f32x4: Info = .{ .component_type = gl.FLOAT, .component_count = 4, .normalized = false };
+    pub const f16x2: Info = .{ .component_type = gl.HALF_FLOAT, .component_count = 2, .normalized = false };
+    pub const f16x4: Info = .{ .component_type = gl.HALF_FLOAT, .component_count = 4, .normalized = false };
+    pub const u8x4_norm: Info = .{ .component_type = gl.UNSIGNED_BYTE, .component_count = 4, .normalized = true };
+    pub const i16x2_norm: Info = .{ .component_type = gl.SHORT, .component_count = 2, .normalized = true };
+    pub const u32x1: Info = .{ .component_type = gl.UNSIGNED_INT, .component_count = 1, .normalized = false };
+};
+
+pub const VertexAttribute = struct {
+    location: u32,
+    binding: u32,
+    format: VertexFormat.Info,
+    offset: u32,
+};
+
+pub const VertexBinding = struct {
+    binding: u32,
+    stride: u32,
+    input_rate: VertexInputRate = .vertex,
+};
+
+pub const VertexLayout = struct {
+    attributes: []const VertexAttribute,
+    binding: []const VertexBinding,
+};
+
+// Rasterizer
+pub const PolygonMode = enum { fill, line, point };
+pub const CullMode = enum { none, front, back };
+pub const FrontFace = enum { ccw, cw };
+pub const DepthBias = struct {
+    constant_factor: f32 = 0.0,
+    slop_factor: f32 = 0.0,
+    //clamp: f32 = 0.0, // requires GL_EXT_polygon_offset_clamp
+};
+
+pub const RasterizerState = struct {
+    polygon_mode: PolygonMode = .fill,
+    cull_mode: CullMode = .back,
+    front_face: FrontFace = .ccw,
+    depth_bias: ?DepthBias = null,
+    depth_clamp: bool = false,
+    scissor_test: bool = false,
+    rasterizer_discard: bool = false,
+};
+
+// Depth Stencil
+
+pub const CompareOp = enum(u32) {
+    never = gl.NEVER,
+    less = gl.LESS,
+    equal = gl.EQUAL,
+    lequal = gl.LEQUAL,
+    greater = gl.GREATER,
+    nequal = gl.NOTEQUAL,
+    gequal = gl.GEQUAL,
+    always = gl.ALWAYS,
+};
+
+pub const StencilOp = enum(u32) {
+    keep = gl.KEEP,
+    zero = gl.ZERO,
+    replace = gl.REPLACE,
+    incr_clamp = gl.INCR,
+    decr_clamp = gl.DECR,
+    invert = gl.INVERT,
+    incr_wrap = gl.INCR_WRAP,
+    decr_wrap = gl.DECR_WRAP,
+};
+
+pub const DepthStencilState = struct {
+    // Depth
+    depth_test: bool = true,
+    depth_write: bool = true,
+    depth_compare: CompareOp = .less,
+
+    // Stencil
+    stencil_test: bool = false,
+    front: StencilFaceState = .{},
+    back: StencilFaceState = .{},
+};
+
+pub const StencilFaceState = struct {
+    fail_op: StencilOp = .keep,
+    depth_fail_op: StencilOp = .keep,
+    pass_op: StencilOp = .keep,
+    compare: CompareOp = .always,
+    compare_mask: u8 = 0xFF,
+    write_mask: u8 = 0xFF,
+    reference: u8 = 0,
+};
+
+// Blend
+
+pub const BlendFactor = enum(u32) {
+    zero = gl.ZERO,
+    one = gl.ONE,
+    src_color = gl.SRC_COLOR,
+    one_minus_src_color = gl.ONE_MINUS_SRC_COLOR,
+    dst_color = gl.DST_COLOR,
+    one_minus_dst_color = gl.ONE_MINUS_DST_COLOR,
+    src_alpha = gl.SRC_ALPHA,
+    one_minus_src_alpha = gl.ONE_MINUS_SRC_ALPHA,
+    dst_alpha = gl.DST_ALPHA,
+    one_minus_dst_alpha = gl.ONE_MINUS_DST_ALPHA,
+    constant_color = gl.CONSTANT_COLOR,
+    one_minus_constant = gl.ONE_MINUS_CONSTANT_COLOR,
+    src_alpha_saturate = gl.SRC_ALPHA_SATURATE,
+    // dual-source blending (GL_ARB_blend_func_extended)
+    src1_color = gl.SRC1_COLOR,
+    one_minus_src1_color = gl.ONE_MINUS_SRC1_COLOR,
+    src1_alpha = gl.SRC1_ALPHA,
+    one_minus_src1_alpha = gl.ONE_MINUS_SRC1_ALPHA,
+};
+
+pub const BlendOp = enum(u32) {
+    add = gl.FUNC_ADD,
+    subtract = gl.FUNC_SUBTRACT,
+    reverse_subtract = gl.FUNC_REVERSE_SUBTRACT,
+    min = gl.MIN,
+    max = gl.MAX,
+};
+
+pub const ColorWriteMask = packed struct(u4) {
+    r: bool = true,
+    g: bool = true,
+    b: bool = true,
+    a: bool = true,
+};
+
+// Per-attachment blend state — maps to glBlendFuncSeparatei / glBlendEquationSeparatei
+pub const AttachmentBlendState = struct {
+    blend_enable: bool = false,
+    src_color: BlendFactor = .one,
+    dst_color: BlendFactor = .zero,
+    color_op: BlendOp = .add,
+    src_alpha: BlendFactor = .one,
+    dst_alpha: BlendFactor = .zero,
+    alpha_op: BlendOp = .add,
+    write_mask: ColorWriteMask = .{},
+};
+
+pub const BlendState = struct {
+    // Per-attachment — index matches color attachment index in the framebuffer
+    // For your G-buffer pass you'll have 3-4 attachments with blend disabled on all.
+    // For your lighting/transparency pass you'll have blend on attachment 0 only.
+    attachments: []const AttachmentBlendState,
+    blend_constants: [4]f32 = .{ 0, 0, 0, 0 },
+};
+
+pub const GraphicPipelineDesc = struct {
+    vertex_shader: ShaderHandle,
+    fragment_shader: ShaderHandle,
+    tess_control_shader: ?ShaderHandle = null,
+    tess_eval_shader: ?ShaderHandle = null,
+
+    vertex_layout: VertexLayout,
+    rasterizer_state: RasterizerState = .{},
+    depth_stencil_state: DepthStencilState = .{},
+    blend_state: BlendState,
+
+    color_attachment_formats: []const TextureFormat,
+    depth_format: ?TextureFormat = null,
+
+    debug_name: ?[]const u8 = null,
+};
+
+pub const GraphicPipeline = @This();
+
+pub const StageBit = packed struct(u8) {
+    vertex: bool = false,
+    fragment: bool = false,
+    tess_control: bool = false,
+    tess_eval: bool = false,
+};
+
+program_handle: u32,
+stages: StageBit,
+
+vao_handle: u32,
+
+// TODO: Maybe conditionally enable in debug build for hot reload and such
+// vertex_shader: ShaderHandle,
+// fragment_shader: ShaderHandle,
+// tess_control_shader: ?ShaderHandle = null,
+// tess_eval_shader: ?ShaderHandle = null,
+
+vertex_layout: VertexLayout,
+rasterizer_state: RasterizerState = .{},
+depth_stencil_state: DepthStencilState = .{},
+blend_state: BlendState,
+
+color_attachment_formats: []const TextureFormat,
+depth_format: ?TextureFormat = null,
+
+pub fn init(self: *GraphicPipeline, device: *Device, desc: *const GraphicPipelineDesc) !void {
+    self.program_handle = gl.createProgram();
+    self.stages = .{};
+
+    self.vertex_layout = desc.vertex_layout;
+    self.rasterizer_state = desc.rasterizer_state;
+    self.depth_stencil_state = desc.depth_stencil_state;
+    self.blend_state = desc.blend_state;
+
+    self.color_attachment_formats = desc.color_attachment_formats;
+    self.depth_format = desc.depth_format;
+
+    const vertex_shader = device.shaders.get(desc.vertex_shader) orelse return error.missing_shader;
+    const fragment_shader = device.shaders.get(desc.fragment_shader) orelse return error.missing_shader;
+    const tess_control_shader = if (desc.tess_control_shader) |handle| device.shaders.get(handle) orelse return error.missing_shader else null;
+    const tess_eval_shader = if (desc.tess_eval_shader) |handle| device.shaders.get(handle) orelse return error.missing_shader else null;
+
+    gl.attachShader(self.program_handle, vertex_shader.handle);
+    self.stages.vertex = true;
+    gl.attachShader(self.program_handle, fragment_shader.handle);
+    self.stages.fragment = true;
+    if (tess_control_shader) |sh| gl.attachShader(self.handle, sh.handle);
+    self.stages.tess_control = tess_control_shader != null;
+    if (tess_eval_shader) |sh| gl.attachShader(self.handle, sh.handle);
+    self.stages.tess_eval = tess_eval_shader != null;
+
+    gl.linkProgram(self.program_handle);
+    {
+        var success: i32 = 0;
+        gl.getProgramiv(self.program_handle, gl.LINK_STATUS, &success);
+        if (success != gl.TRUE) {
+            var size: isize = 0;
+            var buffer: [1024]u8 = undefined;
+            gl.getProgramInfoLog(self.program_handle, 1024, @ptrCast(&size), (&buffer).ptr);
+            std.log.err("Failed to link program: {s}", .{buffer[0..@intCast(size)]});
+            return error.program_linking_failed;
+        }
+    }
+
+    gl.detachShader(self.program_handle, vertex_shader.handle);
+    gl.detachShader(self.program_handle, fragment_shader.handle);
+    if (tess_control_shader) |sh| gl.detachShader(self.handle, sh.handle);
+    if (tess_eval_shader) |sh| gl.detachShader(self.handle, sh.handle);
+
+    gl.createVertexArrays(1, @ptrCast(&self.vao_handle));
+
+    for (desc.vertex_layout.binding) |b| {
+        gl.vertexArrayBindingDivisor(self.vao, b.binding, switch (b.input_rate) {
+            .vertex => 0,
+            .instance => 1,
+        });
+    }
+
+    for (desc.vertex_layout.attributes) |attr| {
+        gl.enableVertexArrayAttrib(self.vao_handle, attr.location);
+        gl.vertexArrayAttribFormat(
+            self.vao_handle,
+            attr.location,
+            @intCast(attr.format.component_count),
+            attr.format.component_type,
+            if (attr.format.normalized) gl.TRUE else gl.FALSE,
+            attr.offset,
+        );
+        gl.vertexArrayAttribBinding(self.vao_handle, attr.location, attr.binding);
+    }
+
+    if (desc.debug_name) |label| {
+        gl.objectLabel(gl.PROGRAM, self.program_handle, @intCast(label.len), label.ptr);
+    }
+}
+
+pub fn deinit(self: *GraphicPipeline) void {
+    gl.deleteProgram(self.program_handle);
+    gl.deleteVertexArrays(1, @ptrCast(&self.vao_handle));
+}
