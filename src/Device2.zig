@@ -1,16 +1,31 @@
 const std = @import("std");
 const gl = @import("gl4_6.zig");
 
+pub const Device = @This();
+
 const Handle = @import("resource_pool.zig").Handle;
 const ResourcePool = @import("resource_pool.zig").ResourcePool;
-const DeviceLimit = @import("Resources/DeviceLimits.zig");
-const Buffer = @import("resource/buffer.zig");
-const Texture = @import("resource/texture.zig");
-const Shader = @import("resource/shader.zig");
-const GraphicPipeline = @import("resource/graphic_pipeline.zig");
-const ComputePipeline = @import("resource/compute_pipeline.zig");
+pub const DeviceLimit = @import("Resources/DeviceLimits.zig");
+pub const Buffer = @import("resource/buffer.zig");
+pub const Texture = @import("resource/texture.zig");
+pub const Shader = @import("resource/shader.zig");
+pub const GraphicPipeline = @import("resource/graphic_pipeline.zig");
+pub const ComputePipeline = @import("resource/compute_pipeline.zig");
 
-pub fn TypedHandle(comptime _: @TypeOf(.enum_literal)) type {
+const StagingBuffers = @import("staging_buffers.zig");
+
+pub const ResourceHandleIdentifier = enum {
+    buffer,
+    texture,
+    sampler,
+    framebuffer,
+
+    shader,
+    graphic_pipeline,
+    compute_pipeline,
+};
+
+pub fn TypedHandle(comptime _: ResourceHandleIdentifier) type {
     return packed struct(u32) {
         index: u24,
         generation: u8,
@@ -25,7 +40,7 @@ pub const BufferHandle = TypedHandle(.buffer);
 pub const TextureHandle = TypedHandle(.texture);
 pub const ShaderHandle = TypedHandle(.shader);
 pub const GraphicPipelineHandle = TypedHandle(.graphic_pipeline);
-pub const ComputePipelineHandle = TypedHandle(.compute);
+pub const ComputePipelineHandle = TypedHandle(.compute_pipeline);
 
 allocator: std.mem.Allocator,
 
@@ -35,6 +50,29 @@ textures: ResourcePool(Texture, 128) = undefined,
 shaders: ResourcePool(Shader, 32) = undefined,
 graphic_pipelines: ResourcePool(GraphicPipeline, 32) = undefined,
 compute_pipelines: ResourcePool(ComputePipeline, 32) = undefined,
+
+staging_buffers: StagingBuffers,
+
+pub fn init(self: *Device, allocator: std.mem.Allocator) !void {
+    self.allocator = allocator;
+    try self.buffers.init(allocator);
+    try self.textures.init(allocator);
+    try self.shaders.init(allocator);
+    try self.graphic_pipelines.init(allocator);
+    try self.compute_pipelines.init(allocator);
+
+    try self.staging_buffers.init(allocator, .{});
+}
+
+pub fn deinit(self: *Device) void {
+    self.buffers.deinit(self.allocator, Buffer.deinit);
+    self.textures.deinit(self.allocator, Texture.deinit);
+    self.shaders.deinit(self.allocator, Shader.deinit);
+    self.graphic_pipelines.deinit(self.allocator, GraphicPipeline.deinit);
+    self.compute_pipelines.deinit(self.allocator, ComputePipeline.deinit);
+
+    self.staging_buffers.deinit(self.allocator);
+}
 
 pub const GraphicsPass = struct {
     current_pipeline: ?*const GraphicPipeline = null,

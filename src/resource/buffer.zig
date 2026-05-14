@@ -99,7 +99,7 @@ pub fn init(self: *Buffer, desc: *const BufferDesc) !void {
     }
 }
 
-pub fn deinit(self: *Buffer) void {
+pub fn deinit(self: *Buffer, _: std.mem.Allocator) void {
     if (self.ptr != null) {
         _ = gl.unmapNamedBuffer(self.handle);
     }

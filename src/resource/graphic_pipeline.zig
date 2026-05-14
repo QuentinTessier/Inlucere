@@ -48,9 +48,9 @@ pub const VertexLayout = struct {
 };
 
 // Rasterizer
-pub const PolygonMode = enum { fill, line, point };
-pub const CullMode = enum { none, front, back };
-pub const FrontFace = enum { ccw, cw };
+pub const PolygonMode = enum(u32) { fill = gl.FILL, line = gl.LINE, point = gl.POINT };
+pub const CullMode = enum(u32) { none, front = gl.FRONT, back = gl.BACK };
+pub const FrontFace = enum(u32) { ccw = gl.CCW, cw = gl.CW };
 pub const DepthBias = struct {
     constant_factor: f32 = 0.0,
     slop_factor: f32 = 0.0,
@@ -287,7 +287,127 @@ pub fn init(self: *GraphicPipeline, device: *Device, desc: *const GraphicPipelin
     }
 }
 
-pub fn deinit(self: *GraphicPipeline) void {
+pub fn deinit(self: *GraphicPipeline, _: std.mem.Allocator) void {
     gl.deleteProgram(self.program_handle);
     gl.deleteVertexArrays(1, @ptrCast(&self.vao_handle));
+}
+
+fn enable_or_disable(flag: u32, value: bool) void {
+    switch (value) {
+        true => gl.enable(flag),
+        false => gl.disable(flag),
+    }
+}
+
+pub fn apply_rasterizer_state(self: *const GraphicPipeline) void {
+    gl.polygonMode(gl.FRONT_AND_BACK, @intFromEnum(self.rasterizer_state.polygon_mode));
+
+    if (self.rasterizer_state.cull_mode == .none) {
+        gl.disable(gl.CULL_FACE);
+    } else {
+        gl.enable(gl.CULL_FACE);
+        gl.cullFace(@intCast(self.rasterizer_state.cull_mode));
+    }
+
+    gl.frontFace(@intCast(self.rasterizer_state.front_face));
+
+    enable_or_disable(gl.POLYGON_OFFSET_FILL, self.rasterizer_state.depth_bias != null);
+    enable_or_disable(gl.POLYGON_OFFSET_LINE, self.rasterizer_state.depth_bias != null);
+    enable_or_disable(gl.POLYGON_OFFSET_POINT, self.rasterizer_state.depth_bias != null);
+    if (self.rasterizer_state.depth_bias) |bias| {
+        gl.polygonOffset(bias.slop_factor, bias.constant_factor);
+    }
+
+    enable_or_disable(gl.DEPTH_CLAMP, self.rasterizer_state.depth_clamp);
+    enable_or_disable(gl.SCISSOR_TEST, self.rasterizer_state.scissor_test);
+    enable_or_disable(gl.RASTERIZER_DISCARD, self.rasterizer_state.rasterizer_discard);
+}
+
+fn apply_stencil_face(face: u32, state: *const StencilFaceState) void {
+    gl.stencilFuncSeparate(
+        face,
+        @intFromEnum(state.compare),
+        state.reference,
+        state.compare_mask,
+    );
+    gl.stencilOpSeparate(
+        face,
+        @intFromEnum(state.fail_op),
+        @intFromEnum(state.depth_fail_op),
+        @intFromEnum(state.pass_op),
+    );
+    gl.stencilMaskSeparate(face, state.write_mask);
+}
+
+pub fn apply_depth_stencil_state(self: *const GraphicPipeline) void {
+    if (self.depth_stencil_state.depth_test) {
+        gl.enable(gl.DEPTH_TEST);
+        gl.depthFunc(@intFromEnum(self.depth_stencil_state.depth_compare));
+    } else {
+        gl.disable(gl.DEPTH_TEST);
+    }
+
+    gl.depthMask(if (self.depth_stencil_state.depth_write) gl.TRUE else gl.FALSE);
+
+    if (self.depth_stencil_state.stencil_test) {
+        gl.enable(gl.STENCIL_TEST);
+        apply_stencil_face(gl.FRONT, &self.depth_stencil_state.front);
+        apply_stencil_face(gl.BACK, &self.depth_stencil_state.back);
+    }
+}
+
+fn apply_attachment_blend(slot: u32, attachment: AttachmentBlendState) void {
+    if (!attachment.blend_enable) {
+        gl.disablei(gl.BLEND, slot);
+        gl.colorMaski(
+            slot,
+            attachment.write_mask.r,
+            attachment.write_mask.g,
+            attachment.write_mask.b,
+            attachment.write_mask.a,
+        );
+        return;
+    }
+
+    gl.enablei(gl.BLEND, slot);
+    gl.blendFuncSeparatei(
+        slot,
+        @intFromEnum(attachment.src_color),
+        @intFromEnum(attachment.dst_color),
+        @intFromEnum(attachment.src_alpha),
+        @intFromEnum(attachment.dst_alpha),
+    );
+
+    gl.blendEquationSeparatei(
+        slot,
+        @intFromEnum(attachment.color_op),
+        @intFromEnum(attachment.alpha_op),
+    );
+
+    gl.colorMaski(
+        slot,
+        attachment.write_mask.r,
+        attachment.write_mask.g,
+        attachment.write_mask.b,
+        attachment.write_mask.a,
+    );
+}
+
+pub fn apply_blend(self: *const GraphicPipeline) void {
+    gl.blendColor(
+        self.blend_state.blend_constants[0],
+        self.blend_state.blend_constants[1],
+        self.blend_state.blend_constants[2],
+        self.blend_state.blend_constants[3],
+    );
+
+    for (self.blend_state.attachments, 0..) |attachment, i| {
+        apply_attachment_blend(@intCast(i), attachment);
+    }
+}
+
+pub fn apply_state(self: *const GraphicPipeline) void {
+    self.apply_rasterizer_state();
+    self.apply_depth_stencil_state();
+    self.apply_blend();
 }

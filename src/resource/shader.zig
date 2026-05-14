@@ -33,6 +33,6 @@ pub fn init(self: *Shader, source: []const u8, stage: Stage) !void {
     }
 }
 
-pub fn deinit(self: *Shader) void {
+pub fn deinit(self: *Shader, _: std.mem.Allocator) void {
     gl.deleteShader(self.handle);
 }

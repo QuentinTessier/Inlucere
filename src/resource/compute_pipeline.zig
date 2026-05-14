@@ -47,3 +47,7 @@ pub fn init(self: *ComputePipeline, device: *Device, desc: *const ComputePipelin
         gl.objectLabel(gl.PROGRAM, self.handle, @intCast(label.len), label.ptr);
     }
 }
+
+pub fn deinit(self: *ComputePipeline, _: std.mem.Allocator) void {
+    gl.deleteProgram(self.handle);
+}
