@@ -333,10 +333,6 @@ pub const GraphicsEncoder = struct {
         std.debug.assert(buffer.flags.usage == .uniform);
 
         gl.bindBufferRange(gl.UNIFORM_BUFFER, slot, buffer.handle, @intCast(offset), @intCast(size));
-        try self.ctx.pending_access.append(self.ctx.device.allocator, .{ .buffer = .{
-            .handle = buf,
-            .access = .uniform_buffer_read,
-        } });
     }
 
     pub fn bind_storage_buffer(self: *GraphicsEncoder, slot: u32, buf: Device.BufferHandle, offset: usize, size: usize) void {
@@ -344,20 +340,12 @@ pub const GraphicsEncoder = struct {
         std.debug.assert(buffer.flags.usage == .storage);
 
         gl.bindBufferRange(gl.SHADER_STORAGE_BUFFER, slot, buf.handle, @intCast(offset), @intCast(size));
-        try self.ctx.pending_access.append(self.ctx.device.allocator, .{ .buffer = .{
-            .handle = buf,
-            .access = .storage_buffer_read,
-        } });
     }
 
     pub fn bind_texture(self: *GraphicsEncoder, slot: u32, tex: Device.TextureHandle) void {
         const texture = self.ctx.device.textures.get(tex.to_untyped()) orelse return;
 
         gl.bindTextureUnit(slot, texture.handle);
-        self.ctx.pending_access.append(self.ctx.device.allocator, .{ .texture = .{
-            .handle = tex,
-            .access = .sampled_read,
-        } }) catch {};
     }
 
     pub fn bind_sampled_texture(self: *GraphicsEncoder, slot: u32, s: Device.SamplerHandle, tex: Device.TextureHandle) void {
