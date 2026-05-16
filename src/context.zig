@@ -202,6 +202,12 @@ pub fn begin_graphics_pass(self: *Context, attachments: PassAttachments) Graphic
     };
 }
 
+pub fn begin_transfer_pass(self: *Context) TransferEncoder {
+    return .{
+        .ctx = self,
+    };
+}
+
 pub fn begin_compute_pass(self: *Context) ComputeEncoder {
     self.flush_barriers_for_pass(.compute);
     return ComputeEncoder{
@@ -216,7 +222,8 @@ pub const GraphicsEncoder = struct {
     pipeline: ?*const Device.GraphicPipeline = null,
     attachments: PassAttachments,
 
-    pub fn bind_pipeline(self: *GraphicsEncoder, pipeline: *const Device.GraphicPipeline) void {
+    pub fn bind_pipeline(self: *GraphicsEncoder, h: Device.GraphicPipelineHandle) void {
+        const pipeline = self.ctx.device.graphic_pipelines.get(h.to_untyped()) orelse unreachable;
         if (self.ctx.bound_program != pipeline.program_handle) {
             gl.useProgram(pipeline.program_handle);
             self.ctx.bound_program = pipeline.program_handle;
@@ -240,14 +247,14 @@ pub const GraphicsEncoder = struct {
     }
 
     pub fn bind_index_buffer(self: *GraphicsEncoder, buf: Device.BufferHandle) void {
-        const buffer = self.ctx.device.buffers.get(buf) orelse return;
+        const buffer = self.ctx.device.buffers.get(buf.to_untyped()) orelse return;
         std.debug.assert(buffer.flags.usage == .index);
 
         gl.vertexArrayElementBuffer(self.ctx.bound_vao, buf.handle);
     }
 
     pub fn bind_uniform_buffer(self: *GraphicsEncoder, slot: u32, buf: Device.BufferHandle, offset: usize, size: usize) !void {
-        const buffer = self.ctx.device.buffers.get(buf) orelse return;
+        const buffer = self.ctx.device.buffers.get(buf.to_untyped()) orelse return;
         std.debug.assert(buffer.flags.usage == .uniform);
 
         gl.bindBufferRange(gl.UNIFORM_BUFFER, slot, buf.handle, @intCast(offset), @intCast(size));
@@ -258,7 +265,7 @@ pub const GraphicsEncoder = struct {
     }
 
     pub fn bind_storage_buffer(self: *GraphicsEncoder, slot: u32, buf: Device.BufferHandle, offset: usize, size: usize) void {
-        const buffer = self.ctx.device.buffers.get(buf) orelse return;
+        const buffer = self.ctx.device.buffers.get(buf.to_untyped()) orelse return;
         std.debug.assert(buffer.flags.usage == .storage);
 
         gl.bindBufferRange(gl.SHADER_STORAGE_BUFFER, slot, buf.handle, @intCast(offset), @intCast(size));
@@ -269,13 +276,13 @@ pub const GraphicsEncoder = struct {
     }
 
     pub fn bind_texture(self: *GraphicsEncoder, slot: u32, tex: Device.TextureHandle) void {
-        const texture = self.ctx.device.textures.get(tex) orelse return;
+        const texture = self.ctx.device.textures.get(tex.to_untyped()) orelse return;
 
         gl.bindTextureUnit(slot, texture.handle);
-        try self.ctx.pending_access.append(self.ctx.device.allocator, .{ .texture = .{
+        self.ctx.pending_access.append(self.ctx.device.allocator, .{ .texture = .{
             .handle = tex,
             .access = .sampled_read,
-        } });
+        } }) catch {};
     }
 
     pub const Mode = enum(u32) {
@@ -367,8 +374,19 @@ pub const ComputeEncoder = struct {
     ctx: *Context,
     pipeline: ?*const Device.ComputePipeline = null,
 
+    pub fn bind_pipeline(self: *ComputeEncoder, pipeline: Device.ComputePipelineHandle) void {
+        const p = self.ctx.device.compute_pipelines.get(pipeline.to_untyped()) orelse unreachable;
+
+        if (self.ctx.bound_program != p.handle) {
+            gl.useProgram(p.handle);
+            self.ctx.bound_program = p.handle;
+        }
+
+        self.pipeline = p;
+    }
+
     pub fn bind_storage_buffer(self: *ComputeEncoder, slot: u32, buf: Device.BufferHandle, offset: usize, size: usize, access: Device.Buffer.AccessUsage) void {
-        const buffer = self.ctx.device.buffers.get(buf) orelse return;
+        const buffer = self.ctx.device.buffers.get(buf.to_untyped()) orelse return;
         std.debug.assert(buffer.flags.usage == .storage);
 
         gl.bindBufferRange(gl.SHADER_STORAGE_BUFFER, slot, buf.handle, @intCast(offset), @intCast(size));
@@ -382,7 +400,7 @@ pub const ComputeEncoder = struct {
     }
 
     pub fn bind_storage_image(self: *ComputeEncoder, slot: u32, tex: Device.TextureHandle, level: u32, access: Device.Buffer.AccessUsage) void {
-        const texture = self.ctx.device.textures.get(tex) orelse return;
+        const texture = self.ctx.device.textures.get(tex.to_untyped()) orelse return;
         std.debug.assert(texture.usage.storage);
 
         gl.bindImageTexture(slot, texture.handle, @intCast(level), gl.FALSE, 0, switch (access) {
@@ -391,11 +409,11 @@ pub const ComputeEncoder = struct {
             .read_write => gl.READ_WRITE,
         }, @intFromEnum(texture.format));
         switch (access) {
-            .read => {},
-            .write => try self.ctx.pending_access.append(self.ctx.device.allocator, .{ .texture = .{
+            .read_only => {},
+            .write_only, .read_write => self.ctx.pending_access.append(self.ctx.device.allocator, .{ .texture = .{
                 .handle = tex,
                 .access = .storage_image_write,
-            } }),
+            } }) catch {},
         }
     }
 
@@ -405,9 +423,92 @@ pub const ComputeEncoder = struct {
 
     pub fn dispatch_size(self: *ComputeEncoder, x: u32, y: u32, z: u32) void {
         gl.dispatchCompute(
-            @divFloor(x, self.pipeline.?.workgroup_size[0]),
-            @divFloor(y, self.pipeline.?.workgroup_size[1]),
-            @divFloor(z, self.pipeline.?.workgroup_size[2]),
+            std.math.divCeil(u32, x, self.pipeline.?.workgroup_size[0]) catch unreachable,
+            std.math.divCeil(u32, y, self.pipeline.?.workgroup_size[1]) catch unreachable,
+            std.math.divCeil(u32, z, self.pipeline.?.workgroup_size[2]) catch unreachable,
         );
+    }
+
+    pub fn end(self: *ComputeEncoder) void {
+        if (std.debug.runtime_safety) {
+            self.ctx = undefined;
+            self.pipeline = null;
+        }
+    }
+};
+
+pub const TransferEncoder = struct {
+    ctx: *Context,
+
+    pub fn upload_buffer(self: *TransferEncoder, dst: Device.BufferHandle, offset: usize, data: []const u8) !void {
+        const buffer = self.ctx.device.get_buffer(dst) orelse return error.missing_buffer;
+        const result = self.ctx.device.staging_buffers.upload(buffer.handle, offset, data);
+        if (!result) return error.staging_full;
+
+        try self.ctx.pending_access.append(self.ctx.device.allocator, .{ .buffer = .{
+            .handle = dst,
+            .access = .transfer_write_buffer,
+        } });
+    }
+
+    pub fn copy_buffer_to_buffer(self: *TransferEncoder, src: Device.BufferHandle, src_offset: usize, dst: Device.BufferHandle, dst_offset: usize, size: usize) !void {
+        const src_buffer = self.ctx.device.get_buffer(src) orelse return error.missing_buffer;
+        const dst_buffer = self.ctx.device.get_buffer(dst) orelse return error.missing_buffer;
+
+        gl.copyNamedBufferSubData(src_buffer.handle, dst_buffer.handle, @intCast(src_offset), @intCast(dst_offset), size);
+        try self.ctx.pending_access.append(self.ctx.device.allocator, .{ .buffer = .{
+            .handle = dst,
+            .access = .transfer_write_buffer,
+        } });
+    }
+
+    pub fn map_buffer(self: *TransferEncoder, buf: Device.BufferHandle, comptime T: type) ![]T {
+        const buffer = self.ctx.device.get_buffer(buf) orelse return error.missing_buffer;
+        if (buffer.ptr == null) return error.unmap_buffer;
+
+        return buffer.cast(T);
+    }
+
+    pub fn upload_texture(self: *TransferEncoder, dst: Device.TextureHandle, data: *const Device.Texture.TextureWriteData) !void {
+        const texture = self.ctx.device.get_texture(dst) orelse return error.missing_texture;
+
+        texture.write(data);
+        try self.ctx.pending_access.append(self.ctx.device.allocator, .{ .texture = .{
+            .handle = dst,
+            .access = .transfer_write_texture,
+        } });
+    }
+
+    pub fn generate_mipmaps(self: *TransferEncoder, dst: Device.TextureHandle) !void {
+        const texture = self.ctx.device.get_texture(dst) orelse return error.missing_texture;
+
+        var found: bool = true;
+        while (found) {
+            found = false;
+            for (self.ctx.pending_access.items, 0..) |item, i| {
+                switch (item) {
+                    .buffer => continue,
+                    .texture => |t| {
+                        if (t.handle.index == dst.index) {
+                            gl.memoryBarrier(gl.TEXTURE_UPDATE_BARRIER_BIT);
+                            self.ctx.pending_access.orderedRemove(i);
+                            found = true;
+                        }
+                    },
+                }
+            }
+        }
+
+        gl.generateTextureMipmap(texture.handle);
+        try self.ctx.pending_access.append(self.ctx.device.allocator, .{ .texture = .{
+            .handle = dst,
+            .access = .mipmap_generation,
+        } });
+    }
+
+    pub fn end(self: *TransferEncoder) void {
+        if (std.debug.runtime_safety) {
+            self.ctx = undefined;
+        }
     }
 };

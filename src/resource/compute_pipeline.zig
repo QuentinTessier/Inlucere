@@ -11,13 +11,15 @@ workgroup_size: [3]u32,
 
 pub const ComputePipelineDesc = struct {
     shader: ShaderHandle,
+    workgroup_size: [3]u32,
     debug_name: ?[]const u8 = null,
 };
 
 pub fn init(self: *ComputePipeline, device: *Device, desc: *const ComputePipelineDesc) !void {
     self.handle = gl.createProgram();
+    self.workgroup_size = desc.workgroup_size;
 
-    const compute_shader = device.shaders.get(desc.shader) orelse return error.missing_shader;
+    const compute_shader = device.shaders.get(desc.shader.to_untyped()) orelse return error.missing_shader;
 
     gl.attachShader(self.handle, compute_shader.handle);
     gl.linkProgram(self.handle);
@@ -35,13 +37,14 @@ pub fn init(self: *ComputePipeline, device: *Device, desc: *const ComputePipelin
 
     gl.detachShader(self.handle, compute_shader.handle);
 
-    var local_size: [3]i32 = undefined;
-    gl.getProgramiv(self.handle, gl.MAX_COMPUTE_WORK_GROUP_SIZE, &local_size);
-    self.workgroup_size = .{
-        @intCast(local_size[0]),
-        @intCast(local_size[1]),
-        @intCast(local_size[2]),
-    };
+    // var local_size: [3]i32 = undefined;
+    // gl.getProgramiv(self.handle, gl.MAX_COMPUTE_WORK_GROUP_SIZE, &local_size);
+    // std.log.info("{} {} {}", .{ local_size[0], local_size[1], local_size[2] });
+    // self.workgroup_size = .{
+    //     @intCast(local_size[0]),
+    //     @intCast(local_size[1]),
+    //     @intCast(local_size[2]),
+    // };
 
     if (desc.debug_name) |label| {
         gl.objectLabel(gl.PROGRAM, self.handle, @intCast(label.len), label.ptr);

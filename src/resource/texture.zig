@@ -124,7 +124,7 @@ pub const TextureDesc = struct {
     width: u32,
     height: u32,
     depth: u32 = 1,
-    kind: Kind = .none,
+    kind: Kind,
 
     mip_levels: u32 = 1,
 
@@ -171,7 +171,7 @@ format: TextureFormat,
 usage: TextureUsage,
 mip_levels: u32,
 
-pub fn init(self: *Texture, desc: *const TextureDesc) void {
+pub fn init(self: *Texture, desc: *const TextureDesc) !void {
     desc.validate_target();
 
     gl.createTextures(desc.target_flag(), 1, @ptrCast(&self.handle));
