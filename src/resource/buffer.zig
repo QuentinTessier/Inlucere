@@ -33,6 +33,7 @@ pub const BufferDesc = struct {
     usage: BufferUsage,
     memory: MemoryType,
     access: AccessUsage = .read_write,
+    data: ?[]const u8 = null,
     debug_name: ?[]const u8 = null,
 
     pub fn storage_flags(self: *const BufferDesc) u32 {
@@ -64,6 +65,7 @@ ptr: ?[*]u8 = null,
 flags: Flags,
 
 pub fn init(self: *Buffer, desc: *const BufferDesc) !void {
+    if (desc.data) |data| std.debug.assert(data.len == desc.size);
     gl.createBuffers(1, &self.handle);
 
     self.size = desc.size;
@@ -74,7 +76,7 @@ pub fn init(self: *Buffer, desc: *const BufferDesc) !void {
     gl.namedBufferStorage(
         self.handle,
         @intCast(desc.size),
-        null,
+        if (desc.data) |data| data.ptr else null,
         desc.storage_flags(),
     );
 

@@ -10,6 +10,7 @@ pub const Texture = @import("resource/texture.zig");
 pub const Shader = @import("resource/shader.zig");
 pub const GraphicPipeline = @import("resource/graphic_pipeline.zig");
 pub const ComputePipeline = @import("resource/compute_pipeline.zig");
+pub const VertexArray = @import("resource/vertex_array.zig");
 
 const StagingBuffers = @import("staging_buffers.zig");
 
@@ -54,6 +55,8 @@ shaders: ResourcePool(Shader, 32) = undefined,
 graphic_pipelines: ResourcePool(GraphicPipeline, 32) = undefined,
 compute_pipelines: ResourcePool(ComputePipeline, 32) = undefined,
 
+vertex_arrays: std.AutoArrayHashMapUnmanaged(u64, struct { handle: u32, ref_count: u32 }),
+
 staging_buffers: StagingBuffers,
 
 pub fn init(self: *Device, allocator: std.mem.Allocator) !void {
@@ -63,6 +66,7 @@ pub fn init(self: *Device, allocator: std.mem.Allocator) !void {
     self.shaders.init();
     self.graphic_pipelines.init();
     self.compute_pipelines.init();
+    self.vertex_arrays = .empty;
 
     try self.staging_buffers.init(allocator, &.{});
 }
@@ -75,6 +79,8 @@ pub fn deinit(self: *Device) void {
     self.compute_pipelines.deinit(self.allocator, ComputePipeline.deinit);
 
     self.staging_buffers.deinit(self.allocator);
+
+    gl.deleteVertexArrays(@intCast(self.vertex_arrays.values().len), self.vertex_arrays.values().ptr);
 }
 
 pub fn create(comptime resource_type: ResourceHandleIdentifier) type {
@@ -160,3 +166,25 @@ pub const get_compute_pipeline = create(.compute_pipeline).get_fn;
 pub const create_shader = create(.shader).create_fn;
 pub const destroy_shader = create(.shader).destroy_fn;
 pub const get_shader = create(.shader).get_fn;
+
+pub fn create_vertex_array(self: *Device, layout: *const GraphicPipeline.VertexLayout) !struct { u64, u32 } {
+    const h = VertexArray.hash(layout);
+
+    const result = try self.vertex_arrays.getOrPut(self.allocator, h);
+    if (!result.found_existing) {
+        result.value_ptr.* = .{ .handle = VertexArray.init(layout), .ref_count = 1 };
+    } else {
+        result.value_ptr.ref_count += 1;
+    }
+    return .{ h, result.value_ptr.handle };
+}
+
+pub fn destroy_vertex_array(self: *Device, h: u64) void {
+    if (self.vertex_arrays.getPtr(h)) |elem| {
+        elem.ref_count -= 1;
+        if (elem.ref_count == 0) {
+            VertexArray.destroy(elem.handle);
+            _ = self.vertex_arrays.swapRemove(h);
+        }
+    }
+}

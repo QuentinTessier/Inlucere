@@ -203,12 +203,7 @@ stages: StageBit,
 
 vao_handle: u32,
 
-// TODO: Maybe conditionally enable in debug build for hot reload and such
-// vertex_shader: ShaderHandle,
-// fragment_shader: ShaderHandle,
-// tess_control_shader: ?ShaderHandle = null,
-// tess_eval_shader: ?ShaderHandle = null,
-
+vao_hash: u64,
 vertex_layout: VertexLayout,
 rasterizer_state: RasterizerState = .{},
 depth_stencil_state: DepthStencilState = .{},
@@ -216,6 +211,15 @@ blend_state: BlendState,
 
 color_attachment_formats: []const TextureFormat,
 depth_format: ?TextureFormat = null,
+
+fn compute_vertex_array_hash(vertex_layout: *const VertexLayout) u64 {
+    var hash: std.hash.Wyhash = .init(0x0129302);
+
+    hash.update(std.mem.asBytes(vertex_layout.attributes));
+    hash.update(std.mem.asBytes(vertex_layout.binding));
+
+    return hash.final();
+}
 
 pub fn init(self: *GraphicPipeline, device: *Device, desc: *const GraphicPipelineDesc) !void {
     self.program_handle = gl.createProgram();
@@ -261,36 +265,15 @@ pub fn init(self: *GraphicPipeline, device: *Device, desc: *const GraphicPipelin
     if (tess_control_shader) |sh| gl.detachShader(self.program_handle, sh.handle);
     if (tess_eval_shader) |sh| gl.detachShader(self.program_handle, sh.handle);
 
-    gl.createVertexArrays(1, @ptrCast(&self.vao_handle));
-
-    for (desc.vertex_layout.binding) |b| {
-        gl.vertexArrayBindingDivisor(self.vao_handle, b.binding, switch (b.input_rate) {
-            .vertex => 0,
-            .instance => 1,
-        });
-    }
-
-    for (desc.vertex_layout.attributes) |attr| {
-        gl.enableVertexArrayAttrib(self.vao_handle, attr.location);
-        gl.vertexArrayAttribFormat(
-            self.vao_handle,
-            attr.location,
-            @intCast(attr.format.component_count),
-            attr.format.component_type,
-            if (attr.format.normalized) gl.TRUE else gl.FALSE,
-            attr.offset,
-        );
-        gl.vertexArrayAttribBinding(self.vao_handle, attr.location, attr.binding);
-    }
-
+    self.vao_hash, self.vao_handle = try device.create_vertex_array(&desc.vertex_layout);
     if (desc.debug_name) |label| {
         gl.objectLabel(gl.PROGRAM, self.program_handle, @intCast(label.len), label.ptr);
     }
 }
 
-pub fn deinit(self: *GraphicPipeline, _: std.mem.Allocator) void {
+pub fn deinit(self: *GraphicPipeline, device: *Device, _: std.mem.Allocator) void {
     gl.deleteProgram(self.program_handle);
-    gl.deleteVertexArrays(1, @ptrCast(&self.vao_handle));
+    device.destroy_vertex_array(self.vao_hash);
 }
 
 fn enable_or_disable(flag: u32, value: bool) void {

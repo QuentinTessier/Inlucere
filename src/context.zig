@@ -163,16 +163,56 @@ pub const PassAttachments = struct {
     }
 };
 
+fn build_framebuffer(self: *Context, attachments: PassAttachments) !u32 {
+    var draw_buffers: [16]u32 = [1]u32{0} ** 16;
+    var handle: u32 = 0;
+    gl.createFramebuffers(1, @ptrCast(&handle));
+    errdefer gl.deleteFramebuffers(1, &handle);
+
+    for (attachments.color, 0..) |attachment, i| {
+        const texture = self.device.get_texture(attachment.texture) orelse return error.missing_texture;
+
+        gl.namedFramebufferTexture(handle, @intCast(gl.COLOR_ATTACHMENT0 + i), texture.handle, @intCast(attachment.mip_level));
+        draw_buffers[i] = @intCast(gl.COLOR_ATTACHMENT0 + i);
+    }
+
+    gl.namedFramebufferDrawBuffers(handle, @intCast(attachments.color.len), (&draw_buffers).ptr);
+    if (attachments.depth) |depth_attachment| {
+        const texture = self.device.get_texture(depth_attachment.texture) orelse return error.missing_texture;
+
+        gl.namedFramebufferTexture(handle, if (depth_attachment.has_stencil) gl.DEPTH_STENCIL_ATTACHMENT else gl.DEPTH_ATTACHMENT, texture.handle, 0);
+    }
+
+    if (std.debug.runtime_safety) {
+        const status = gl.checkNamedFramebufferStatus(handle, gl.FRAMEBUFFER);
+        if (status != gl.FRAMEBUFFER_COMPLETE) {
+            std.log.err("Framebuffer incomplete: 0x{x} - {s}", .{ status, switch (status) {
+                gl.FRAMEBUFFER_UNDEFINED => "undefined",
+                gl.FRAMEBUFFER_INCOMPLETE_ATTACHMENT => "incomplete attachment",
+                gl.FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT => "missing attachment",
+                gl.FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER => "incomplete draw buffer",
+                gl.FRAMEBUFFER_INCOMPLETE_READ_BUFFER => "incomplete read buffer",
+                gl.FRAMEBUFFER_UNSUPPORTED => "unsupported format combination",
+                gl.FRAMEBUFFER_INCOMPLETE_MULTISAMPLE => "inconsistent multisample",
+                gl.FRAMEBUFFER_INCOMPLETE_LAYER_TARGETS => "inconsistent layer targets",
+                else => "unknown",
+            } });
+            return error.incomplete_framebuffer;
+        }
+    }
+    return handle;
+}
+
 pub fn begin_graphics_pass(self: *Context, attachments: PassAttachments) GraphicsEncoder {
     self.flush_barriers_for_pass(.graphics);
 
-    const fbo: u32 = 0;
-    switch (attachments.target) {
-        .framebuffer => @panic("not implemented yet"),
-        .swapchain => {
-            gl.bindFramebuffer(gl.FRAMEBUFFER, 0);
+    const fbo: u32 = switch (attachments.target) {
+        .framebuffer => self.build_framebuffer(attachments) catch {
+            @panic("failed to build framebuffer");
         },
-    }
+        .swapchain => 0,
+    };
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
 
     for (attachments.color, 0..) |attachment, i| {
         switch (attachment.load) {
@@ -196,7 +236,7 @@ pub fn begin_graphics_pass(self: *Context, attachments: PassAttachments) Graphic
 
     return GraphicsEncoder{
         .ctx = self,
-        .fbo = 0,
+        .fbo = fbo,
         .pipeline = null,
         .attachments = attachments,
     };
@@ -250,14 +290,14 @@ pub const GraphicsEncoder = struct {
         const buffer = self.ctx.device.buffers.get(buf.to_untyped()) orelse return;
         std.debug.assert(buffer.flags.usage == .index);
 
-        gl.vertexArrayElementBuffer(self.ctx.bound_vao, buf.handle);
+        gl.vertexArrayElementBuffer(self.ctx.bound_vao, buffer.handle);
     }
 
     pub fn bind_uniform_buffer(self: *GraphicsEncoder, slot: u32, buf: Device.BufferHandle, offset: usize, size: usize) !void {
         const buffer = self.ctx.device.buffers.get(buf.to_untyped()) orelse return;
         std.debug.assert(buffer.flags.usage == .uniform);
 
-        gl.bindBufferRange(gl.UNIFORM_BUFFER, slot, buf.handle, @intCast(offset), @intCast(size));
+        gl.bindBufferRange(gl.UNIFORM_BUFFER, slot, buffer.handle, @intCast(offset), @intCast(size));
         try self.ctx.pending_access.append(self.ctx.device.allocator, .{ .buffer = .{
             .handle = buf,
             .access = .uniform_buffer_read,
