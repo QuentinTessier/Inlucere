@@ -1,9 +1,9 @@
 const std = @import("std");
 const gl = @import("../gl4_6.zig");
 
-const ShaderHandle = @import("../Device2.zig").ShaderHandle;
+const ShaderHandle = @import("../device.zig").ShaderHandle;
 const TextureFormat = @import("texture.zig").TextureFormat;
-const Device = @import("../Device2.zig");
+const Device = @import("../device.zig");
 
 // Vertex Data
 pub const VertexInputRate = enum {
@@ -195,6 +195,7 @@ pub const StageBit = packed struct(u8) {
     fragment: bool = false,
     tess_control: bool = false,
     tess_eval: bool = false,
+    __padding: u4 = 0,
 };
 
 program_handle: u32,
@@ -228,18 +229,18 @@ pub fn init(self: *GraphicPipeline, device: *Device, desc: *const GraphicPipelin
     self.color_attachment_formats = desc.color_attachment_formats;
     self.depth_format = desc.depth_format;
 
-    const vertex_shader = device.shaders.get(desc.vertex_shader) orelse return error.missing_shader;
-    const fragment_shader = device.shaders.get(desc.fragment_shader) orelse return error.missing_shader;
-    const tess_control_shader = if (desc.tess_control_shader) |handle| device.shaders.get(handle) orelse return error.missing_shader else null;
-    const tess_eval_shader = if (desc.tess_eval_shader) |handle| device.shaders.get(handle) orelse return error.missing_shader else null;
+    const vertex_shader = device.shaders.get(desc.vertex_shader.to_untyped()) orelse return error.missing_shader;
+    const fragment_shader = device.shaders.get(desc.fragment_shader.to_untyped()) orelse return error.missing_shader;
+    const tess_control_shader = if (desc.tess_control_shader) |handle| device.shaders.get(handle.to_untyped()) orelse return error.missing_shader else null;
+    const tess_eval_shader = if (desc.tess_eval_shader) |handle| device.shaders.get(handle.to_untyped()) orelse return error.missing_shader else null;
 
     gl.attachShader(self.program_handle, vertex_shader.handle);
     self.stages.vertex = true;
     gl.attachShader(self.program_handle, fragment_shader.handle);
     self.stages.fragment = true;
-    if (tess_control_shader) |sh| gl.attachShader(self.handle, sh.handle);
+    if (tess_control_shader) |sh| gl.attachShader(self.program_handle, sh.handle);
     self.stages.tess_control = tess_control_shader != null;
-    if (tess_eval_shader) |sh| gl.attachShader(self.handle, sh.handle);
+    if (tess_eval_shader) |sh| gl.attachShader(self.program_handle, sh.handle);
     self.stages.tess_eval = tess_eval_shader != null;
 
     gl.linkProgram(self.program_handle);
@@ -257,13 +258,13 @@ pub fn init(self: *GraphicPipeline, device: *Device, desc: *const GraphicPipelin
 
     gl.detachShader(self.program_handle, vertex_shader.handle);
     gl.detachShader(self.program_handle, fragment_shader.handle);
-    if (tess_control_shader) |sh| gl.detachShader(self.handle, sh.handle);
-    if (tess_eval_shader) |sh| gl.detachShader(self.handle, sh.handle);
+    if (tess_control_shader) |sh| gl.detachShader(self.program_handle, sh.handle);
+    if (tess_eval_shader) |sh| gl.detachShader(self.program_handle, sh.handle);
 
     gl.createVertexArrays(1, @ptrCast(&self.vao_handle));
 
     for (desc.vertex_layout.binding) |b| {
-        gl.vertexArrayBindingDivisor(self.vao, b.binding, switch (b.input_rate) {
+        gl.vertexArrayBindingDivisor(self.vao_handle, b.binding, switch (b.input_rate) {
             .vertex => 0,
             .instance => 1,
         });
@@ -306,10 +307,10 @@ pub fn apply_rasterizer_state(self: *const GraphicPipeline) void {
         gl.disable(gl.CULL_FACE);
     } else {
         gl.enable(gl.CULL_FACE);
-        gl.cullFace(@intCast(self.rasterizer_state.cull_mode));
+        gl.cullFace(@intFromEnum(self.rasterizer_state.cull_mode));
     }
 
-    gl.frontFace(@intCast(self.rasterizer_state.front_face));
+    gl.frontFace(@intFromEnum(self.rasterizer_state.front_face));
 
     enable_or_disable(gl.POLYGON_OFFSET_FILL, self.rasterizer_state.depth_bias != null);
     enable_or_disable(gl.POLYGON_OFFSET_LINE, self.rasterizer_state.depth_bias != null);
@@ -361,10 +362,10 @@ fn apply_attachment_blend(slot: u32, attachment: AttachmentBlendState) void {
         gl.disablei(gl.BLEND, slot);
         gl.colorMaski(
             slot,
-            attachment.write_mask.r,
-            attachment.write_mask.g,
-            attachment.write_mask.b,
-            attachment.write_mask.a,
+            if (attachment.write_mask.r) gl.TRUE else gl.FALSE,
+            if (attachment.write_mask.g) gl.TRUE else gl.FALSE,
+            if (attachment.write_mask.b) gl.TRUE else gl.FALSE,
+            if (attachment.write_mask.a) gl.TRUE else gl.FALSE,
         );
         return;
     }
@@ -386,10 +387,10 @@ fn apply_attachment_blend(slot: u32, attachment: AttachmentBlendState) void {
 
     gl.colorMaski(
         slot,
-        attachment.write_mask.r,
-        attachment.write_mask.g,
-        attachment.write_mask.b,
-        attachment.write_mask.a,
+        if (attachment.write_mask.r) gl.TRUE else gl.FALSE,
+        if (attachment.write_mask.g) gl.TRUE else gl.FALSE,
+        if (attachment.write_mask.b) gl.TRUE else gl.FALSE,
+        if (attachment.write_mask.a) gl.TRUE else gl.FALSE,
     );
 }
 

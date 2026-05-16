@@ -233,7 +233,7 @@ pub fn init(self: *Texture, desc: *const TextureDesc) void {
 }
 
 pub fn deinit(self: *const Texture, _: std.mem.Allocator) void {
-    gl.deleteTextures(1, @ptrCast(self.handle));
+    gl.deleteTextures(1, @ptrCast(&self.handle));
 }
 
 pub const Channels = packed struct {

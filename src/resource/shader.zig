@@ -15,7 +15,14 @@ pub const Stage = enum(u32) {
 handle: u32,
 stage: Stage,
 
-pub fn init(self: *Shader, source: []const u8, stage: Stage) !void {
+pub const ShaderDesc = struct {
+    source: []const u8,
+    stage: Stage,
+};
+
+pub fn init(self: *Shader, desc: *const ShaderDesc) !void {
+    const stage = desc.stage;
+    const source = desc.source;
     self.handle = gl.createShader(@intFromEnum(stage));
 
     var length: i32 = @intCast(source.len);

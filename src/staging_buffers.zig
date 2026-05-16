@@ -20,8 +20,8 @@ pub const Options = struct {
     defines_debug_names: bool = false,
 };
 
-pub fn init(self: *StagingBuffers, allocator: std.mem.Allocator, options: Options) std.mem.Allocator.Error!void {
-    self.buffers = .initCapacity(allocator, options.count);
+pub fn init(self: *StagingBuffers, allocator: std.mem.Allocator, options: *const Options) !void {
+    self.buffers = try .initCapacity(allocator, options.count);
     errdefer {
         for (self.buffers.items) |buffer| {
             gl.deleteBuffers(1, @ptrCast(&buffer.handle));
@@ -45,14 +45,14 @@ pub fn init(self: *StagingBuffers, allocator: std.mem.Allocator, options: Option
         const mapped_opaque_ptr = gl.mapNamedBufferRange(
             ptr.handle,
             0,
-            options.size,
+            @intCast(options.size),
             flags,
         ) orelse return error.failed_to_map;
-        ptr.mapped_memory = mapped_opaque_ptr[0..options.size];
+        ptr.mapped_memory = @as([*]u8, @ptrCast(mapped_opaque_ptr))[0..options.size];
 
         if (options.defines_debug_names) {
-            const name_buffer: [32]u8 = [1]u8{0} ** 32;
-            const result = std.fmt.bufPrint(name_buffer, "staging_{}", .{i}) catch &.{};
+            var name_buffer: [32]u8 = [1]u8{0} ** 32;
+            const result = std.fmt.bufPrint(&name_buffer, "staging_{}", .{i}) catch &.{};
 
             gl.objectLabel(gl.BUFFER, ptr.handle, @intCast(result.len), result.ptr);
         }

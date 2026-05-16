@@ -1,8 +1,8 @@
 const std = @import("std");
 const gl = @import("../gl4_6.zig");
 
-const ShaderHandle = @import("../Device2.zig").ShaderHandle;
-const Device = @import("../Device2.zig");
+const ShaderHandle = @import("../device.zig").ShaderHandle;
+const Device = @import("../device.zig");
 
 pub const ComputePipeline = @This();
 
