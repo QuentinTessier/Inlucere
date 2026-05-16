@@ -271,7 +271,7 @@ pub fn init(self: *GraphicPipeline, device: *Device, desc: *const GraphicPipelin
     }
 }
 
-pub fn deinit(self: *GraphicPipeline, device: *Device, _: std.mem.Allocator) void {
+pub fn deinit(self: *GraphicPipeline, device: *Device) void {
     gl.deleteProgram(self.program_handle);
     device.destroy_vertex_array(self.vao_hash);
 }

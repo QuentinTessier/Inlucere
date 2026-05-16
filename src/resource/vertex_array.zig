@@ -5,8 +5,8 @@ const VertexLayout = @import("graphic_pipeline.zig").VertexLayout;
 pub fn hash(vertex_layout: *const VertexLayout) u64 {
     var h: std.hash.Wyhash = .init(0x0129302);
 
-    h.update(std.mem.asBytes(vertex_layout.attributes));
-    h.update(std.mem.asBytes(vertex_layout.binding));
+    h.update(std.mem.sliceAsBytes(vertex_layout.attributes));
+    h.update(std.mem.sliceAsBytes(vertex_layout.binding));
 
     return h.final();
 }

@@ -11,6 +11,7 @@ pub const Shader = @import("resource/shader.zig");
 pub const GraphicPipeline = @import("resource/graphic_pipeline.zig");
 pub const ComputePipeline = @import("resource/compute_pipeline.zig");
 pub const VertexArray = @import("resource/vertex_array.zig");
+pub const Sampler = @import("resource/sampler.zig");
 
 const StagingBuffers = @import("staging_buffers.zig");
 
@@ -42,6 +43,7 @@ pub fn TypedHandle(comptime _: ResourceHandleIdentifier) type {
 
 pub const BufferHandle = TypedHandle(.buffer);
 pub const TextureHandle = TypedHandle(.texture);
+pub const SamplerHandle = TypedHandle(.sampler);
 pub const ShaderHandle = TypedHandle(.shader);
 pub const GraphicPipelineHandle = TypedHandle(.graphic_pipeline);
 pub const ComputePipelineHandle = TypedHandle(.compute_pipeline);
@@ -51,6 +53,7 @@ allocator: std.mem.Allocator,
 // TODO: Allow build.zig to specify the size of each pool.
 buffers: ResourcePool(Buffer, 64) = undefined,
 textures: ResourcePool(Texture, 128) = undefined,
+samplers: ResourcePool(Sampler, 128) = undefined,
 shaders: ResourcePool(Shader, 32) = undefined,
 graphic_pipelines: ResourcePool(GraphicPipeline, 32) = undefined,
 compute_pipelines: ResourcePool(ComputePipeline, 32) = undefined,
@@ -63,6 +66,7 @@ pub fn init(self: *Device, allocator: std.mem.Allocator) !void {
     self.allocator = allocator;
     self.buffers.init();
     self.textures.init();
+    self.samplers.init();
     self.shaders.init();
     self.graphic_pipelines.init();
     self.compute_pipelines.init();
@@ -74,13 +78,17 @@ pub fn init(self: *Device, allocator: std.mem.Allocator) !void {
 pub fn deinit(self: *Device) void {
     self.buffers.deinit(self.allocator, Buffer.deinit);
     self.textures.deinit(self.allocator, Texture.deinit);
+    self.samplers.deinit(void{}, Sampler.deinit);
     self.shaders.deinit(self.allocator, Shader.deinit);
-    self.graphic_pipelines.deinit(self.allocator, GraphicPipeline.deinit);
+    self.graphic_pipelines.deinit(self, GraphicPipeline.deinit);
     self.compute_pipelines.deinit(self.allocator, ComputePipeline.deinit);
 
     self.staging_buffers.deinit(self.allocator);
 
-    gl.deleteVertexArrays(@intCast(self.vertex_arrays.values().len), self.vertex_arrays.values().ptr);
+    for (self.vertex_arrays.values()) |vao| {
+        gl.deleteVertexArrays(1, &vao.handle);
+    }
+    self.vertex_arrays.deinit(self.allocator);
 }
 
 pub fn create(comptime resource_type: ResourceHandleIdentifier) type {
@@ -108,6 +116,7 @@ pub fn create(comptime resource_type: ResourceHandleIdentifier) type {
             const id, const ptr = switch (resource_type) {
                 .buffer => try self.buffers.new(),
                 .texture => try self.textures.new(),
+                .sampler => try self.samplers.new(),
                 .graphic_pipeline => try self.graphic_pipelines.new(),
                 .compute_pipeline => try self.compute_pipelines.new(),
                 .shader => try self.shaders.new(),
@@ -127,6 +136,7 @@ pub fn create(comptime resource_type: ResourceHandleIdentifier) type {
             switch (resource_type) {
                 .buffer => self.buffers.destroy(h, self.allocator, Buffer.deinit),
                 .texture => self.textures.destroy(h, self.allocator, Texture.deinit),
+                .sampler => self.textures.destroy(h, void{}, Texture.deinit),
                 .graphic_pipeline => self.graphic_pipelines.destroy(h, self.allocator, GraphicPipeline.deinit),
                 .compute_pipeline => self.compute_pipelines.destroy(h, self.allocator, ComputePipeline.deinit),
                 .shader => self.shaders.destroy(h, self.allocator, Shader.deinit),
@@ -138,6 +148,7 @@ pub fn create(comptime resource_type: ResourceHandleIdentifier) type {
             return switch (resource_type) {
                 .buffer => self.buffers.get(h.to_untyped()),
                 .texture => self.textures.get(h.to_untyped()),
+                .sampler => self.samplers.get(h.to_untyped()),
                 .graphic_pipeline => self.graphic_pipelines.get(h.to_untyped()),
                 .compute_pipeline => self.compute_pipelines.get(h.to_untyped()),
                 .shader => self.shaders.get(h.to_untyped()),
@@ -154,6 +165,10 @@ pub const get_buffer = create(.buffer).get_fn;
 pub const create_texture = create(.texture).create_fn;
 pub const destroy_texture = create(.texture).destroy_fn;
 pub const get_texture = create(.texture).get_fn;
+
+pub const create_sampler = create(.sampler).create_fn;
+pub const destroy_sampler = create(.sampler).destroy_fn;
+pub const get_sampler = create(.sampler).get_fn;
 
 pub const create_graphics_pipeline = create(.graphic_pipeline).create_fn;
 pub const destroy_graphics_pipeline = create(.graphic_pipeline).destroy_fn;

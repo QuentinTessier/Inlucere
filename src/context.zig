@@ -107,14 +107,20 @@ bound_vao: u32 = 0,
 current_pass: ?PassType = null,
 
 pending_access: std.array_list.Aligned(AccessedResource, null),
+fbo_cache: std.AutoArrayHashMapUnmanaged(u64, u32),
 
 pub fn init(self: *Context, device: *Device) void {
     self.device = device;
     self.pending_access = .empty;
+    self.fbo_cache = .empty;
 }
 
 pub fn deinit(self: *Context) void {
     self.pending_access.deinit(self.device.allocator);
+    if (self.fbo_cache.values().len > 0) {
+        gl.deleteFramebuffers(@intCast(self.fbo_cache.values().len), self.fbo_cache.values().ptr);
+    }
+    self.fbo_cache.deinit(self.device.allocator);
 }
 
 fn flush_barriers_for_pass(self: *Context, next_pass: PassType) void {
@@ -161,7 +167,26 @@ pub const PassAttachments = struct {
     pub fn swapchain() PassAttachments {
         return .{ .target = .swapchain };
     }
+
+    pub fn hash(self: *const PassAttachments) u64 {
+        var h: std.hash.Wyhash = .init(0x0129302);
+
+        h.update(std.mem.sliceAsBytes(self.color));
+        h.update(std.mem.asBytes(&self.depth));
+        h.update(std.mem.asBytes(&self.target));
+        return h.final();
+    }
 };
+
+fn build_or_get_framebuffer(self: *Context, attachments: PassAttachments) !u32 {
+    const h = attachments.hash();
+    const result = try self.fbo_cache.getOrPut(self.device.allocator, h);
+    if (!result.found_existing) {
+        result.value_ptr.* = try self.build_framebuffer(attachments);
+    }
+
+    return result.value_ptr.*;
+}
 
 fn build_framebuffer(self: *Context, attachments: PassAttachments) !u32 {
     var draw_buffers: [16]u32 = [1]u32{0} ** 16;
@@ -203,11 +228,21 @@ fn build_framebuffer(self: *Context, attachments: PassAttachments) !u32 {
     return handle;
 }
 
+pub fn begin_frame(self: *Context) void {
+    self.device.staging_buffers.begin_staging();
+    gl.deleteFramebuffers(@intCast(self.fbo_cache.values().len), self.fbo_cache.values().ptr);
+    self.fbo_cache.clearRetainingCapacity();
+}
+
+pub fn end_frame(self: *Context) void {
+    self.device.staging_buffers.end_staging();
+}
+
 pub fn begin_graphics_pass(self: *Context, attachments: PassAttachments) GraphicsEncoder {
     self.flush_barriers_for_pass(.graphics);
 
     const fbo: u32 = switch (attachments.target) {
-        .framebuffer => self.build_framebuffer(attachments) catch {
+        .framebuffer => self.build_or_get_framebuffer(attachments) catch {
             @panic("failed to build framebuffer");
         },
         .swapchain => 0,
@@ -323,6 +358,14 @@ pub const GraphicsEncoder = struct {
             .handle = tex,
             .access = .sampled_read,
         } }) catch {};
+    }
+
+    pub fn bind_sampled_texture(self: *GraphicsEncoder, slot: u32, s: Device.SamplerHandle, tex: Device.TextureHandle) void {
+        const texture = self.ctx.device.textures.get(tex.to_untyped()) orelse return;
+        const sampler = self.ctx.device.samplers.get(s.to_untyped()) orelse return;
+
+        gl.bindTextureUnit(slot, texture.handle);
+        gl.bindSampler(slot, sampler.handle);
     }
 
     pub const Mode = enum(u32) {
