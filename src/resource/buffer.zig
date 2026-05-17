@@ -94,10 +94,12 @@ pub fn init(self: *Buffer, desc: *const BufferDesc) !void {
         }
 
         self.ptr = @ptrCast(ptr);
+    } else {
+        self.ptr = null;
+    }
 
-        if (desc.debug_name) |label| {
-            gl.objectLabel(gl.BUFFER, self.handle, @intCast(label.len), label.ptr);
-        }
+    if (desc.debug_name) |label| {
+        gl.objectLabel(gl.BUFFER, self.handle, @intCast(label.len), label.ptr);
     }
 }
 
@@ -116,5 +118,13 @@ pub fn cast(self: *const Buffer, comptime T: type) ![]T {
         const casted: [*]T = @ptrCast(@alignCast(ptr));
 
         return casted[0..count];
+    } else return error.not_mapped_buffer;
+}
+
+pub fn cast_range(self: *const Buffer, comptime T: type, offset: usize, size: usize) ![]T {
+    std.debug.assert(self.flags.access != .write_only);
+    if (self.ptr) |ptr| {
+        const casted: [*]T = @ptrCast(@alignCast(ptr + offset));
+        return casted[0..@divExact(size, @sizeOf(T))];
     } else return error.not_mapped_buffer;
 }

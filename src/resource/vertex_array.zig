@@ -12,8 +12,6 @@ pub fn hash(vertex_layout: *const VertexLayout) u64 {
 }
 
 pub fn init(layout: *const VertexLayout) u32 {
-    if (layout.attributes.len == 0 or layout.binding.len == 0) return 0;
-
     var handle: u32 = 0;
     gl.createVertexArrays(1, @ptrCast(&handle));
 

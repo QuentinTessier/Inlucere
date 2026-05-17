@@ -4,12 +4,12 @@ const gl = @import("../gl4_6.zig");
 pub const Shader = @This();
 
 pub const Stage = enum(u32) {
-    Vertex = gl.VERTEX_SHADER,
-    Fragment = gl.FRAGMENT_SHADER,
-    TesselationControl = gl.TESS_CONTROL_SHADER,
-    TesselationEvaluation = gl.TESS_EVALUATION_SHADER,
+    vertex = gl.VERTEX_SHADER,
+    fragment = gl.FRAGMENT_SHADER,
+    tess_control = gl.TESS_CONTROL_SHADER,
+    tess_evaluation = gl.TESS_EVALUATION_SHADER,
 
-    Compute = gl.COMPUTE_SHADER,
+    compute = gl.COMPUTE_SHADER,
 };
 
 handle: u32,
@@ -18,6 +18,7 @@ stage: Stage,
 pub const ShaderDesc = struct {
     source: []const u8,
     stage: Stage,
+    debug_name: ?[]const u8,
 };
 
 pub fn init(self: *Shader, desc: *const ShaderDesc) !void {
@@ -37,6 +38,10 @@ pub fn init(self: *Shader, desc: *const ShaderDesc) !void {
         gl.getShaderInfoLog(self.handle, 1024, &l, (&buffer).ptr);
         std.log.err("{s}", .{buffer[0..@intCast(l)]});
         return error.failed_to_compile_shader;
+    }
+
+    if (desc.debug_name) |label| {
+        gl.objectLabel(gl.SHADER, self.handle, @intCast(label.len), label.ptr);
     }
 }
 

@@ -3,6 +3,7 @@ const gl = @import("gl4_6.zig");
 
 const Device = @import("device.zig");
 const BarrierBits = @import("barrier.zig").BarrierBits;
+const Allocation = @import("memory/gpu_allocator.zig").Allocation;
 
 pub const PassType = enum { graphics, compute };
 
@@ -188,7 +189,7 @@ fn build_or_get_framebuffer(self: *Context, attachments: PassAttachments) !u32 {
     return result.value_ptr.*;
 }
 
-fn build_framebuffer(self: *Context, attachments: PassAttachments) !u32 {
+pub fn build_framebuffer(self: *Context, attachments: PassAttachments) !u32 {
     var draw_buffers: [16]u32 = [1]u32{0} ** 16;
     var handle: u32 = 0;
     gl.createFramebuffers(1, @ptrCast(&handle));
@@ -230,8 +231,8 @@ fn build_framebuffer(self: *Context, attachments: PassAttachments) !u32 {
 
 pub fn begin_frame(self: *Context) void {
     self.device.staging_buffers.begin_staging();
-    gl.deleteFramebuffers(@intCast(self.fbo_cache.values().len), self.fbo_cache.values().ptr);
-    self.fbo_cache.clearRetainingCapacity();
+    //gl.deleteFramebuffers(@intCast(self.fbo_cache.values().len), self.fbo_cache.values().ptr);
+    //self.fbo_cache.clearRetainingCapacity();
 }
 
 pub fn end_frame(self: *Context) void {
@@ -239,7 +240,7 @@ pub fn end_frame(self: *Context) void {
 }
 
 pub fn begin_graphics_pass(self: *Context, attachments: PassAttachments) GraphicsEncoder {
-    self.flush_barriers_for_pass(.graphics);
+    //self.flush_barriers_for_pass(.graphics);
 
     const fbo: u32 = switch (attachments.target) {
         .framebuffer => self.build_or_get_framebuffer(attachments) catch {
@@ -263,7 +264,7 @@ pub fn begin_graphics_pass(self: *Context, attachments: PassAttachments) Graphic
                 if (depth.has_stencil) {
                     gl.clearNamedFramebufferfi(fbo, gl.DEPTH_STENCIL, 0, depth.clear_depth, @intCast(depth.clear_stencil));
                 } else {
-                    gl.clearNamedFramebufferfv(fbo, gl.DEPTH_STENCIL, 0, &depth.clear_depth);
+                    gl.clearNamedFramebufferfv(fbo, gl.DEPTH, 0, &depth.clear_depth);
                 }
             },
         }
@@ -284,7 +285,7 @@ pub fn begin_transfer_pass(self: *Context) TransferEncoder {
 }
 
 pub fn begin_compute_pass(self: *Context) ComputeEncoder {
-    self.flush_barriers_for_pass(.compute);
+    //self.flush_barriers_for_pass(.compute);
     return ComputeEncoder{
         .ctx = self,
         .pipeline = null,
@@ -446,7 +447,7 @@ pub const ComputeEncoder = struct {
     pipeline: ?*const Device.ComputePipeline = null,
 
     pub fn bind_pipeline(self: *ComputeEncoder, pipeline: Device.ComputePipelineHandle) void {
-        const p = self.ctx.device.compute_pipelines.get(pipeline.to_untyped()) orelse unreachable;
+        const p = self.ctx.device.get_compute_pipeline(pipeline) orelse unreachable;
 
         if (self.ctx.bound_program != p.handle) {
             gl.useProgram(p.handle);
@@ -470,6 +471,13 @@ pub const ComputeEncoder = struct {
         }
     }
 
+    pub fn bind_uniform_buffer(self: *ComputeEncoder, slot: u32, buf: Device.BufferHandle, offset: usize, size: usize) !void {
+        const buffer = self.ctx.device.buffers.get(buf.to_untyped()) orelse return;
+        std.debug.assert(buffer.flags.usage == .uniform);
+
+        gl.bindBufferRange(gl.UNIFORM_BUFFER, slot, buffer.handle, @intCast(offset), @intCast(size));
+    }
+
     pub fn bind_storage_image(self: *ComputeEncoder, slot: u32, tex: Device.TextureHandle, level: u32, access: Device.Buffer.AccessUsage) void {
         const texture = self.ctx.device.textures.get(tex.to_untyped()) orelse return;
         std.debug.assert(texture.usage.storage);
@@ -486,6 +494,20 @@ pub const ComputeEncoder = struct {
                 .access = .storage_image_write,
             } }) catch {},
         }
+    }
+
+    pub fn bind_texture(self: *ComputeEncoder, slot: u32, tex: Device.TextureHandle) void {
+        const texture = self.ctx.device.textures.get(tex.to_untyped()) orelse return;
+
+        gl.bindTextureUnit(slot, texture.handle);
+    }
+
+    pub fn bind_sampled_texture(self: *ComputeEncoder, slot: u32, s: Device.SamplerHandle, tex: Device.TextureHandle) void {
+        const texture = self.ctx.device.textures.get(tex.to_untyped()) orelse return;
+        const sampler = self.ctx.device.samplers.get(s.to_untyped()) orelse return;
+
+        gl.bindTextureUnit(slot, texture.handle);
+        gl.bindSampler(slot, sampler.handle);
     }
 
     pub fn dispatch(_: *ComputeEncoder, x: u32, y: u32, z: u32) void {
@@ -522,13 +544,68 @@ pub const TransferEncoder = struct {
         } });
     }
 
-    pub fn copy_buffer_to_buffer(self: *TransferEncoder, src: Device.BufferHandle, src_offset: usize, dst: Device.BufferHandle, dst_offset: usize, size: usize) !void {
-        const src_buffer = self.ctx.device.get_buffer(src) orelse return error.missing_buffer;
-        const dst_buffer = self.ctx.device.get_buffer(dst) orelse return error.missing_buffer;
+    pub fn upload_to_allocation(self: *TransferEncoder, alloc: Allocation, offset: usize, data: []const u8) !void {
+        const buffer = self.ctx.device.get_buffer(alloc.buffer) orelse return error.missing_buffer;
+        std.debug.assert((@as(usize, @intCast(alloc.size)) - offset) >= data.len);
+        const result = self.ctx.device.staging_buffers.upload(buffer.handle, offset, data);
 
-        gl.copyNamedBufferSubData(src_buffer.handle, dst_buffer.handle, @intCast(src_offset), @intCast(dst_offset), size);
+        if (!result) return error.staging_full;
+
         try self.ctx.pending_access.append(self.ctx.device.allocator, .{ .buffer = .{
-            .handle = dst,
+            .handle = alloc.buffer,
+            .access = .transfer_write_buffer,
+        } });
+    }
+
+    pub const BufferCopyDesc = struct {
+        const Target = union(enum) {
+            _buffer: Device.BufferHandle,
+            _alloc: Allocation,
+
+            pub fn buffer(h: Device.BufferHandle) Target {
+                return .{ ._buffer = h };
+            }
+
+            pub fn allocation(a: Allocation) Target {
+                return .{ ._alloc = a };
+            }
+        };
+
+        src: Target,
+        src_offset: usize,
+
+        dst: Target,
+        dst_offset: usize,
+
+        size: usize,
+    };
+
+    pub fn copy_buffer_to_buffer(self: *TransferEncoder, desc: *const BufferCopyDesc) !void {
+        const src_buffer = switch (desc.src) {
+            ._buffer => |src| self.ctx.device.get_buffer(src) orelse return error.missing_buffer,
+            ._alloc => |alloc| self.ctx.device.get_buffer(alloc.buffer) orelse return error.missing_buffer,
+        };
+        const dst_buffer = switch (desc.dst) {
+            ._buffer => |dst| self.ctx.device.get_buffer(dst) orelse return error.missing_buffer,
+            ._alloc => |alloc| self.ctx.device.get_buffer(alloc.buffer) orelse return error.missing_buffer,
+        };
+
+        const src_offset = switch (desc.src) {
+            ._buffer => desc.src_offset,
+            ._alloc => |alloc| desc.src_offset + alloc.offset,
+        };
+
+        const dst_offset = switch (desc.dst) {
+            ._buffer => desc.dst_offset,
+            ._alloc => |alloc| desc.dst_offset + alloc.offset,
+        };
+
+        gl.copyNamedBufferSubData(src_buffer.handle, dst_buffer.handle, @intCast(src_offset), @intCast(dst_offset), desc.size);
+        try self.ctx.pending_access.append(self.ctx.device.allocator, .{ .buffer = .{
+            .handle = switch (desc.dst) {
+                ._buffer => |dst| dst,
+                ._alloc => |alloc| alloc.buffer,
+            },
             .access = .transfer_write_buffer,
         } });
     }
@@ -538,6 +615,13 @@ pub const TransferEncoder = struct {
         if (buffer.ptr == null) return error.unmap_buffer;
 
         return buffer.cast(T);
+    }
+
+    pub fn map_allocation(self: *TransferEncoder, alloc: Allocation, comptime T: type) ![]T {
+        const buffer = self.ctx.device.get_buffer(alloc.buffer) orelse return error.missing_buffer;
+        if (buffer.ptr == null) return error.unmap_buffer;
+
+        return buffer.cast_range(T, alloc.offset, alloc.size);
     }
 
     pub fn upload_texture(self: *TransferEncoder, dst: Device.TextureHandle, data: *const Device.Texture.TextureWriteData) !void {

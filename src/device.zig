@@ -38,6 +38,8 @@ pub fn TypedHandle(comptime _: ResourceHandleIdentifier) type {
         pub fn from_untyped(h: Handle) @This() {
             return .{ .index = h.index, .generation = h.generation };
         }
+
+        pub const invalid: @This() = .{ .index = 0, .generation = 0 };
     };
 }
 
@@ -98,6 +100,7 @@ pub fn create(comptime resource_type: ResourceHandleIdentifier) type {
         .graphic_pipeline => GraphicPipeline.GraphicPipelineDesc,
         .compute_pipeline => ComputePipeline.ComputePipelineDesc,
         .shader => Shader.ShaderDesc,
+        .sampler => Sampler.SamplerDesc,
         else => void,
     };
 
@@ -107,6 +110,7 @@ pub fn create(comptime resource_type: ResourceHandleIdentifier) type {
         .graphic_pipeline => GraphicPipeline,
         .compute_pipeline => ComputePipeline,
         .shader => Shader,
+        .sampler => Sampler,
         else => void,
     };
 
@@ -134,12 +138,12 @@ pub fn create(comptime resource_type: ResourceHandleIdentifier) type {
 
         pub fn destroy_fn(self: *Device, h: TypedHandle(resource_type)) void {
             switch (resource_type) {
-                .buffer => self.buffers.destroy(h, self.allocator, Buffer.deinit),
-                .texture => self.textures.destroy(h, self.allocator, Texture.deinit),
+                .buffer => self.buffers.destroy(h.to_untyped(), self.allocator, Buffer.deinit),
+                .texture => self.textures.destroy(h.to_untyped(), self.allocator, Texture.deinit),
                 .sampler => self.textures.destroy(h, void{}, Texture.deinit),
-                .graphic_pipeline => self.graphic_pipelines.destroy(h, self.allocator, GraphicPipeline.deinit),
-                .compute_pipeline => self.compute_pipelines.destroy(h, self.allocator, ComputePipeline.deinit),
-                .shader => self.shaders.destroy(h, self.allocator, Shader.deinit),
+                .graphic_pipeline => self.graphic_pipelines.destroy(h.to_untyped(), self.allocator, GraphicPipeline.deinit),
+                .compute_pipeline => self.compute_pipelines.destroy(h.to_untyped(), self.allocator, ComputePipeline.deinit),
+                .shader => self.shaders.destroy(h.to_untyped(), self.allocator, Shader.deinit),
                 else => unreachable,
             }
         }

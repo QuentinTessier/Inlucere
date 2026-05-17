@@ -6,23 +6,23 @@ pub const Sampler = @This();
 handle: u32,
 state: SamplerDesc,
 
-pub fn init(self: *Sampler, desc: *const SamplerDesc) void {
+pub fn init(self: *Sampler, desc: *const SamplerDesc) !void {
     gl.createSamplers(1, @ptrCast(&self.handle));
-    self.state = desc;
+    self.state = desc.*;
 
-    gl.samplerParameteri(self.handle, gl.TEXTURE_MAG_FILTER, @intCast(@intFromEnum(desc.magFilter)));
-    const minFilter: u32 = switch (desc.mipFilter) {
-        .none => if (desc.minFilter == .linear) gl.LINEAR else gl.NEAREST,
-        .linear => if (desc.magFilter == .linear) gl.LINEAR_MIPMAP_LINEAR else gl.NEAREST_MIPMAP_LINEAR,
-        .nearest => if (desc.magFilter == .linear) gl.LINEAR_MIPMAP_NEAREST else gl.NEAREST_MIPMAP_NEAREST,
+    gl.samplerParameteri(self.handle, gl.TEXTURE_MAG_FILTER, @intCast(@intFromEnum(desc.mag_filter)));
+    const minFilter: u32 = switch (desc.mip_filter) {
+        .none => if (desc.min_filter == .linear) gl.LINEAR else gl.NEAREST,
+        .linear => if (desc.mag_filter == .linear) gl.LINEAR_MIPMAP_LINEAR else gl.NEAREST_MIPMAP_LINEAR,
+        .nearest => if (desc.mag_filter == .linear) gl.LINEAR_MIPMAP_NEAREST else gl.NEAREST_MIPMAP_NEAREST,
     };
     gl.samplerParameteri(self.handle, gl.TEXTURE_MIN_FILTER, @intCast(minFilter));
 
-    gl.samplerParameteri(self.handle, gl.TEXTURE_WRAP_S, @intCast(@intFromEnum(desc.wrapS)));
-    gl.samplerParameteri(self.handle, gl.TEXTURE_WRAP_R, @intCast(@intFromEnum(desc.wrapR)));
-    gl.samplerParameteri(self.handle, gl.TEXTURE_WRAP_T, @intCast(@intFromEnum(desc.wrapT)));
+    gl.samplerParameteri(self.handle, gl.TEXTURE_WRAP_S, @intCast(@intFromEnum(desc.wrap_s)));
+    gl.samplerParameteri(self.handle, gl.TEXTURE_WRAP_R, @intCast(@intFromEnum(desc.wrap_r)));
+    gl.samplerParameteri(self.handle, gl.TEXTURE_WRAP_T, @intCast(@intFromEnum(desc.wrap_t)));
 
-    switch (desc.broderColor) {
+    switch (desc.broder_color) {
         .float => |color| {
             gl.samplerParameterfv(self.handle, gl.TEXTURE_BORDER_COLOR, (&color).ptr);
         },
@@ -59,16 +59,16 @@ pub const BorderColor = union(enum(u32)) {
 };
 
 pub const SamplerDesc = struct {
-    minLod: f32 = -1000.0,
-    maxLod: f32 = 1000.0,
-    lodBias: f32 = 0.0,
-    minFilter: TextureFilter = .linear,
-    magFilter: TextureFilter = .linear,
-    mipFilter: TextureFilter = .none,
-    wrapS: TextureWrap = .clampToEdge,
-    wrapT: TextureWrap = .clampToEdge,
-    wrapR: TextureWrap = .clampToEdge,
-    broderColor: BorderColor = .{
+    min_lod: f32 = -1000.0,
+    max_lod: f32 = 1000.0,
+    lod_bias: f32 = 0.0,
+    min_filter: TextureFilter = .linear,
+    mag_filter: TextureFilter = .linear,
+    mip_filter: TextureFilter = .none,
+    wrap_s: TextureWrap = .clampToEdge,
+    wrap_t: TextureWrap = .clampToEdge,
+    wrap_r: TextureWrap = .clampToEdge,
+    broder_color: BorderColor = .{
         .float = .{ 0, 0, 0, 1 },
     },
 };
