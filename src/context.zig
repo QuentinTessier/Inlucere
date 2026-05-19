@@ -7,6 +7,24 @@ const Allocation = @import("memory/gpu_allocator.zig").Allocation;
 
 pub const PassType = enum { graphics, compute };
 
+//
+// TODO: Currently implementation is wrong in assuming the barrier emitted needed to be related to the subsequent read
+// But after reading other implementation it seems to be write dependant
+// [Write SSBO A] -> [ Read Uniform A ] would output:
+// BarrierBit{
+//    .ssbo = true,
+//    .command = true,
+//    .vertex_attrib = true,
+//    .index = true,
+//    .uniform = true,
+// };
+// Where we should just output:
+// BarrierBit{
+//    .ssbo = true,
+// };
+//
+// Meaning a per resource system is much simpler since solving the barrier construction just have to look at the type of write
+//
 pub const ResourceAccess = enum {
     storage_buffer_write,
     host_write,
@@ -124,6 +142,20 @@ pub fn deinit(self: *Context) void {
     self.fbo_cache.deinit(self.device.allocator);
 }
 
+// TODO: Currently flushing happens at a pass level, meaning that:
+// Pass 1 -> writes A
+// [ Barrier(A) inserted ]
+// Pass 2 -> writes B
+// [ Barrier(B) inserted ]
+// Pass 3 -> reads A
+// This is fine if the pipeline is simple and sync isn't much of a bottleneck.
+// Down the line, a better approach would be to generate barrier at a resource level
+// Pass 1 -> writes A
+// Pass 2 -> writes B
+// [ Barrier(A) inserted ]
+// Pass 3 -> reads A
+// [ Barrier(B) inserted ]
+// This will require to heavely modify the pass system to support registering resources at pass start.
 fn flush_barriers_for_pass(self: *Context, next_pass: PassType) void {
     var bits = BarrierBits{};
 
@@ -240,7 +272,7 @@ pub fn end_frame(self: *Context) void {
 }
 
 pub fn begin_graphics_pass(self: *Context, attachments: PassAttachments) GraphicsEncoder {
-    //self.flush_barriers_for_pass(.graphics);
+    self.flush_barriers_for_pass(.graphics);
 
     const fbo: u32 = switch (attachments.target) {
         .framebuffer => self.build_or_get_framebuffer(attachments) catch {
