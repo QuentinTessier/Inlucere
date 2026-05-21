@@ -12,6 +12,7 @@ pub const GraphicPipeline = @import("resource/graphic_pipeline.zig");
 pub const ComputePipeline = @import("resource/compute_pipeline.zig");
 pub const VertexArray = @import("resource/vertex_array.zig");
 pub const Sampler = @import("resource/sampler.zig");
+pub const Limits = @import("limits.zig");
 
 const StagingBuffers = @import("staging_buffers.zig");
 
@@ -59,6 +60,7 @@ samplers: ResourcePool(Sampler, 128) = undefined,
 shaders: ResourcePool(Shader, 32) = undefined,
 graphic_pipelines: ResourcePool(GraphicPipeline, 32) = undefined,
 compute_pipelines: ResourcePool(ComputePipeline, 32) = undefined,
+limits: Limits,
 
 vertex_arrays: std.AutoArrayHashMapUnmanaged(u64, struct { handle: u32, ref_count: u32 }),
 
@@ -73,6 +75,7 @@ pub fn init(self: *Device, allocator: std.mem.Allocator) !void {
     self.graphic_pipelines.init();
     self.compute_pipelines.init();
     self.vertex_arrays = .empty;
+    self.limits = .query();
 
     try self.staging_buffers.init(allocator, &.{});
 }
