@@ -4,117 +4,9 @@ const gl = @import("gl4_6.zig");
 const Device = @import("device.zig");
 const BarrierBits = @import("barrier.zig").BarrierBits;
 const Allocation = @import("memory/gpu_allocator.zig").Allocation;
+const ResourceTransition = @import("resource_transition.zig");
 
 pub const PassType = enum { graphics, compute };
-
-//
-// TODO: Currently implementation is wrong in assuming the barrier emitted needed to be related to the subsequent read
-// But after reading other implementation it seems to be write dependant
-// [Write SSBO A] -> [ Read Uniform A ] would output:
-// BarrierBit{
-//    .ssbo = true,
-//    .command = true,
-//    .vertex_attrib = true,
-//    .index = true,
-//    .uniform = true,
-// };
-// Where we should just output:
-// BarrierBit{
-//    .ssbo = true,
-// };
-//
-// Meaning a per resource system is much simpler since solving the barrier construction just have to look at the type of write
-//
-pub const ResourceAccess = enum {
-    storage_buffer_write,
-    host_write,
-    transfer_write_buffer,
-    storage_image_write,
-    color_attachment_write,
-    depth_attachment_write,
-    stencil_attachment_write,
-    depth_stencil_attachment_write,
-    transfer_write_texture,
-    mipmap_generation,
-
-    sampled_read,
-    storage_image_read,
-    storage_buffer_read,
-    indirect_command_read,
-    index_buffer_read,
-    vertex_buffer_read,
-    uniform_buffer_read,
-    transfer_read_buffer,
-    transfer_read_texture,
-
-    pub fn transition(prev: ResourceAccess, next_pass: PassType) BarrierBits {
-        var b: BarrierBits = .{};
-
-        switch (next_pass) {
-            .graphics => switch (prev) {
-                .storage_buffer_write => {
-                    b.ssbo = true;
-                    b.command = true; // might be used as indirect
-                    b.vertex_attrib = true; // might be used as vertex buffer
-                    b.index = true; // might be used as index buffer
-                    b.uniform = true; // might be used as UBO
-                },
-                .storage_image_write => {
-                    b.texture_fetch = true;
-                    b.image_access = true;
-                },
-                .color_attachment_write, .depth_attachment_write, .depth_stencil_attachment_write => {
-                    b.framebuffer = true;
-                    b.texture_fetch = true;
-                },
-                .transfer_write_buffer => {
-                    b.ssbo = true;
-                    b.vertex_attrib = true;
-                    b.index = true;
-                    b.uniform = true;
-                    b.command = true;
-                },
-                .transfer_write_texture => b.texture_update = true,
-                .mipmap_generation => b.texture_fetch = true,
-                .host_write => {},
-                else => {},
-            },
-
-            .compute => switch (prev) {
-                .storage_buffer_write => b.ssbo = true,
-                .storage_image_write => b.image_access = true,
-                .color_attachment_write, .depth_attachment_write, .depth_stencil_attachment_write => {
-                    b.framebuffer = true;
-                    b.texture_fetch = true;
-                },
-                .transfer_write_buffer => b.ssbo = true,
-                .transfer_write_texture => b.texture_update = true,
-                .mipmap_generation => b.texture_fetch = true,
-                .host_write => {},
-                else => {},
-            },
-        }
-        return b;
-    }
-};
-
-pub const AccessedResource = union(enum) {
-    buffer: struct {
-        handle: Device.BufferHandle,
-        access: ResourceAccess,
-    },
-    texture: struct {
-        handle: Device.TextureHandle,
-        access: ResourceAccess,
-    },
-
-    pub fn transition(self: AccessedResource, next_pass: PassType) BarrierBits {
-        return switch (self) {
-            .buffer => |b| b.access.transition(next_pass),
-            .texture => |t| t.access.transition(next_pass),
-        };
-    }
-};
 
 pub const Context = @This();
 
@@ -124,51 +16,21 @@ bound_program: u32 = 0,
 bound_vao: u32 = 0,
 
 current_pass: ?PassType = null,
-
-pending_access: std.array_list.Aligned(AccessedResource, null),
 fbo_cache: std.AutoArrayHashMapUnmanaged(u64, u32),
+transition_cache: ResourceTransition.ResourceAccessManager,
 
 pub fn init(self: *Context, device: *Device) void {
     self.device = device;
-    self.pending_access = .empty;
     self.fbo_cache = .empty;
+    self.transition_cache = .init(device.allocator);
 }
 
 pub fn deinit(self: *Context) void {
-    self.pending_access.deinit(self.device.allocator);
     if (self.fbo_cache.values().len > 0) {
         gl.deleteFramebuffers(@intCast(self.fbo_cache.values().len), self.fbo_cache.values().ptr);
     }
     self.fbo_cache.deinit(self.device.allocator);
-}
-
-// TODO: Currently flushing happens at a pass level, meaning that:
-// Pass 1 -> writes A
-// [ Barrier(A) inserted ]
-// Pass 2 -> writes B
-// [ Barrier(B) inserted ]
-// Pass 3 -> reads A
-// This is fine if the pipeline is simple and sync isn't much of a bottleneck.
-// Down the line, a better approach would be to generate barrier at a resource level
-// Pass 1 -> writes A
-// Pass 2 -> writes B
-// [ Barrier(A) inserted ]
-// Pass 3 -> reads A
-// [ Barrier(B) inserted ]
-// This will require to heavely modify the pass system to support registering resources at pass start.
-fn flush_barriers_for_pass(self: *Context, next_pass: PassType) void {
-    var bits = BarrierBits{};
-
-    const values = self.pending_access.items;
-    for (values) |elem| {
-        bits = bits.merge(elem.transition(next_pass));
-    }
-
-    if (!bits.is_empty()) {
-        gl.memoryBarrier(bits.flags());
-    }
-
-    self.pending_access.clearRetainingCapacity();
+    self.transition_cache.deinit();
 }
 
 pub const AttachmentLoad = enum { load, clear, dont_care };
@@ -271,9 +133,12 @@ pub fn end_frame(self: *Context) void {
     self.device.staging_buffers.end_staging();
 }
 
-pub fn begin_graphics_pass(self: *Context, attachments: PassAttachments) GraphicsEncoder {
-    self.flush_barriers_for_pass(.graphics);
+pub const Transition = union(enum) {
+    buffer: struct { handle: Device.BufferHandle, access: ResourceTransition.BufferResourceAccess },
+    texture: struct { handle: Device.TextureHandle, access: ResourceTransition.TextureResourceAccess },
+};
 
+pub fn begin_graphics_pass(self: *Context, attachments: PassAttachments, transitions: []const Transition) !GraphicsEncoder {
     const fbo: u32 = switch (attachments.target) {
         .framebuffer => self.build_or_get_framebuffer(attachments) catch {
             @panic("failed to build framebuffer");
@@ -302,6 +167,18 @@ pub fn begin_graphics_pass(self: *Context, attachments: PassAttachments) Graphic
         }
     }
 
+    var barrier: u32 = 0;
+    for (transitions) |t| {
+        barrier |= switch (t) {
+            .buffer => |buf| if (try self.transition_cache.update_buffer(buf.handle, buf.access)) |bit| bit else 0,
+            .texture => |tex| if (try self.transition_cache.update_texture(tex.handle, tex.access)) |bit| bit else 0,
+        };
+    }
+
+    if (barrier != 0) {
+        gl.memoryBarrier(barrier);
+    }
+
     return GraphicsEncoder{
         .ctx = self,
         .fbo = fbo,
@@ -310,14 +187,36 @@ pub fn begin_graphics_pass(self: *Context, attachments: PassAttachments) Graphic
     };
 }
 
-pub fn begin_transfer_pass(self: *Context) TransferEncoder {
+pub fn begin_transfer_pass(self: *Context, transitions: []const Transition) TransferEncoder {
+    var barrier: u32 = 0;
+    for (transitions) |t| {
+        barrier |= switch (t) {
+            .buffer => |buf| if (try self.transition_cache.update_buffer(buf.handle, buf.access)) |bit| bit else 0,
+            .texture => |tex| if (try self.transition_cache.update_texture(tex.handle, tex.access)) |bit| bit else 0,
+        };
+    }
+
+    if (barrier != 0) {
+        gl.memoryBarrier(barrier);
+    }
+
     return .{
         .ctx = self,
     };
 }
 
-pub fn begin_compute_pass(self: *Context) ComputeEncoder {
-    //self.flush_barriers_for_pass(.compute);
+pub fn begin_compute_pass(self: *Context, transitions: []const Transition) ComputeEncoder {
+    var barrier: u32 = 0;
+    for (transitions) |t| {
+        barrier |= switch (t) {
+            .buffer => |buf| if (try self.transition_cache.update_buffer(buf.handle, buf.access)) |bit| bit else 0,
+            .texture => |tex| if (try self.transition_cache.update_texture(tex.handle, tex.access)) |bit| bit else 0,
+        };
+    }
+
+    if (barrier != 0) {
+        gl.memoryBarrier(barrier);
+    }
     return ComputeEncoder{
         .ctx = self,
         .pipeline = null,

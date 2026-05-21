@@ -10,7 +10,9 @@ pub const BarrierBits = packed struct(u32) {
     command: bool = false,
     pixel_buffer: bool = false,
     texture_update: bool = false,
+    buffer_update: bool = false,
     framebuffer: bool = false,
+    client_mapped: bool = false,
     ssbo: bool = false,
     _padding: u22 = 0,
 
@@ -33,8 +35,10 @@ pub const BarrierBits = packed struct(u32) {
         f |= if (self.command) gl.COMMAND_BARRIER_BIT else 0;
         f |= if (self.pixel_buffer) gl.PIXEL_BUFFER_BARRIER_BIT else 0;
         f |= if (self.texture_update) gl.TEXTURE_UPDATE_BARRIER_BIT else 0;
+        f |= if (self.buffer_update) gl.BUFFER_UPDATE_BARRIER_BIT else 0;
         f |= if (self.framebuffer) gl.FRAMEBUFFER_BARRIER_BIT else 0;
         f |= if (self.ssbo) gl.SHADER_STORAGE_BARRIER_BIT else 0;
+        f |= if (self.client_mapped) gl.CLIENT_MAPPED_BUFFER_BARRIER_BIT else 0;
 
         return f;
     }

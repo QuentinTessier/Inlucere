@@ -110,13 +110,13 @@ pub const TextureResourceAccess = enum {
     }
 };
 
-const TextureResource = union(enum) {
+const TextureTransition = union(enum) {
     idle: void,
     pending_write: TextureResourceAccess,
     pending_read: TextureResourceAccess,
 };
 
-const BufferResource = union(enum) {
+const BufferTransition = union(enum) {
     idle: void,
     pending_write: BufferResourceAccess,
     pending_read: BufferResourceAccess,
@@ -124,8 +124,8 @@ const BufferResource = union(enum) {
 
 pub const ResourceAccessManager = struct {
     allocator: std.mem.Allocator,
-    textures: std.AutoHashMapUnmanaged(Device.TextureHandle, TextureResource),
-    buffers: std.AutoArrayHashMapUnmanaged(Device.BufferHandle, BufferResource),
+    textures: std.AutoHashMapUnmanaged(Device.TextureHandle, TextureTransition),
+    buffers: std.AutoArrayHashMapUnmanaged(Device.BufferHandle, BufferTransition),
 
     pub fn init(allocator: std.mem.Allocator) ResourceAccessManager {
         return .{
@@ -154,18 +154,18 @@ pub const ResourceAccessManager = struct {
         switch (tex.*) {
             .idle => {
                 if (access.is_write()) {
-                    tex.* = @unionInit(TextureResource, "pending_write", access);
+                    tex.* = @unionInit(TextureTransition, "pending_write", access);
                 } else {
-                    tex.* = @unionInit(TextureResource, "pending_read", access);
+                    tex.* = @unionInit(TextureTransition, "pending_read", access);
                 }
                 return null;
             },
             .pending_write => |prev| {
                 const needs_barrier = prev.incoherent_write() or access.incoherent_write();
                 if (access.is_write()) {
-                    tex.* = @unionInit(TextureResource, "pending_write", access);
+                    tex.* = @unionInit(TextureTransition, "pending_write", access);
                 } else {
-                    tex.* = @unionInit(TextureResource, "pending_read", access);
+                    tex.* = @unionInit(TextureTransition, "pending_read", access);
                 }
 
                 // Guard against incoherent writes since we do not expose `write_only`, `read_only` and `read_write` and coherent/incoherent resource access.
@@ -178,7 +178,7 @@ pub const ResourceAccessManager = struct {
                 }
 
                 const bit = prev.transition(access);
-                tex.* = @unionInit(TextureResource, "pending_write", access);
+                tex.* = @unionInit(TextureTransition, "pending_write", access);
                 return bit;
             },
         }
@@ -198,18 +198,18 @@ pub const ResourceAccessManager = struct {
         switch (tex.*) {
             .idle => {
                 if (access.is_write()) {
-                    tex.* = @unionInit(BufferResource, "pending_write", access);
+                    tex.* = @unionInit(BufferTransition, "pending_write", access);
                 } else {
-                    tex.* = @unionInit(BufferResource, "pending_read", access);
+                    tex.* = @unionInit(BufferTransition, "pending_read", access);
                 }
                 return null;
             },
             .pending_write => |prev| {
                 const needs_barrier = prev.incoherent_write() or access.incoherent_write();
                 if (access.is_write()) {
-                    tex.* = @unionInit(BufferResource, "pending_write", access);
+                    tex.* = @unionInit(BufferTransition, "pending_write", access);
                 } else {
-                    tex.* = @unionInit(BufferResource, "pending_read", access);
+                    tex.* = @unionInit(BufferTransition, "pending_read", access);
                 }
 
                 // Guard against incoherent writes since we do not expose `write_only`, `read_only` and `read_write` and coherent/incoherent resource access.
@@ -222,7 +222,7 @@ pub const ResourceAccessManager = struct {
                 }
 
                 const bit = prev.transition(access);
-                tex.* = @unionInit(BufferResource, "pending_write", access);
+                tex.* = @unionInit(BufferTransition, "pending_write", access);
                 return bit;
             },
         }
