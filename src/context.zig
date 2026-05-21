@@ -385,7 +385,7 @@ pub const ComputeEncoder = struct {
         self.pipeline = p;
     }
 
-    pub fn bind_storage_buffer(self: *ComputeEncoder, slot: u32, buf: Device.BufferHandle, offset: usize, size: usize, access: Device.Buffer.AccessUsage) void {
+    pub fn bind_storage_buffer(self: *ComputeEncoder, slot: u32, buf: Device.BufferHandle, offset: usize, size: usize) void {
         const buffer = self.ctx.device.buffers.get(buf.to_untyped()) orelse return;
         std.debug.assert(buffer.flags.usage == .storage);
 
