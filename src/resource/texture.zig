@@ -162,10 +162,11 @@ pub const TextureDesc = struct {
     }
 };
 
+// TODO: Bindless texture support
 pub const Texture = @This();
 
 handle: u32,
-kind: Kind, // Allow to differenciate between 3D and array texture or 1D array texture and 2D texture
+kind: Kind,
 dimensions: struct { width: u32, height: u32, depth: u32 },
 format: TextureFormat,
 usage: TextureUsage,

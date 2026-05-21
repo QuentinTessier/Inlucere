@@ -20,7 +20,6 @@ pub const ResourceHandleIdentifier = enum {
     buffer,
     texture,
     sampler,
-    framebuffer,
 
     shader,
     graphic_pipeline,
