@@ -18,26 +18,51 @@ pub const BufferResourceAccess = enum {
     transform_feedback_read,
     query_buffer_write,
     query_buffer_read,
+    atomic_counter_write,
+    atomic_counter_read,
 
-    pub fn is_write(self: BufferResourceAccess) bool {
+    pub inline fn is_write(self: BufferResourceAccess) bool {
         return switch (self) {
-            .ssbo_write, .update_write, .host_write, .transform_feedback_write, .query_buffer_write => true,
+            .ssbo_write,
+            .update_write,
+            .host_write,
+            .transform_feedback_write,
+            .query_buffer_write,
+            .atomic_counter_write,
+            => true,
             else => false,
         };
     }
 
     pub fn transition(_: BufferResourceAccess, next: BufferResourceAccess) u32 {
         return switch (next) {
-            .ssbo_read, .ssbo_write => gl.SHADER_STORAGE_BARRIER_BIT,
+            .ssbo_read,
+            .ssbo_write,
+            => gl.SHADER_STORAGE_BARRIER_BIT,
             .uniform_read => gl.UNIFORM_BARRIER_BIT,
             .vertex_read => gl.VERTEX_ATTRIB_ARRAY_BARRIER_BIT,
             .index_read => gl.ELEMENT_ARRAY_BARRIER_BIT,
             .command_read => gl.COMMAND_BARRIER_BIT,
             .update_write => gl.BUFFER_UPDATE_BARRIER_BIT,
-            .host_read, .host_write => gl.CLIENT_MAPPED_BUFFER_BARRIER_BIT,
-            .transform_feedback_write, .transform_feedback_read => gl.TRANSFORM_FEEDBACK_BARRIER_BIT,
-            .query_buffer_write, .query_buffer_read => gl.QUERY_BUFFER_BARRIER_BIT,
-            else => null,
+            .host_read,
+            .host_write,
+            => gl.CLIENT_MAPPED_BUFFER_BARRIER_BIT,
+            .transform_feedback_write,
+            .transform_feedback_read,
+            => gl.TRANSFORM_FEEDBACK_BARRIER_BIT,
+            .query_buffer_write,
+            .query_buffer_read,
+            => gl.QUERY_BUFFER_BARRIER_BIT,
+            .atomic_counter_read,
+            .atomic_counter_write,
+            => gl.ATOMIC_COUNTER_BARRIER_BIT,
+        };
+    }
+
+    pub fn incoherent_write(self: BufferResourceAccess) bool {
+        return switch (self) {
+            .ssbo_write, .atomic_counter_write, .transform_feedback_write => true,
+            else => false,
         };
     }
 };
@@ -54,18 +79,34 @@ pub const TextureResourceAccess = enum {
 
     pub fn is_write(self: TextureResourceAccess) bool {
         return switch (self) {
-            .image_write, .color_attachment_write, .depth_attachment_write, .update_write, .mipmap_generation => true,
+            .image_write,
+            .color_attachment_write,
+            .depth_attachment_write,
+            .update_write,
+            .mipmap_generation,
+            => true,
             else => false,
         };
     }
 
     pub fn transition(_: TextureResourceAccess, next: TextureResourceAccess) u32 {
         return switch (next) {
-            .image_read, .image_write => gl.SHADER_IMAGE_ACCESS_BARRIER_BIT,
+            .image_read,
+            .image_write,
+            => gl.SHADER_IMAGE_ACCESS_BARRIER_BIT,
             .sampled_read => gl.TEXTURE_FETCH_BARRIER_BIT,
-            .color_attachment_write, .depth_attachment_write => gl.FRAMEBUFFER_BARRIER_BIT,
-            .update_write, .update_read, .mipmap_generation => gl.TEXTURE_UPDATE_BARRIER_BIT,
+            .color_attachment_write,
+            .depth_attachment_write,
+            => gl.FRAMEBUFFER_BARRIER_BIT,
+            .update_write,
+            .update_read,
+            .mipmap_generation,
+            => gl.TEXTURE_UPDATE_BARRIER_BIT,
         };
+    }
+
+    pub inline fn incoherent_write(self: TextureResourceAccess) bool {
+        return self == .image_write;
     }
 };
 
@@ -75,20 +116,28 @@ const TextureResource = union(enum) {
     pending_read: TextureResourceAccess,
 };
 
+const BufferResource = union(enum) {
+    idle: void,
+    pending_write: BufferResourceAccess,
+    pending_read: BufferResourceAccess,
+};
+
 pub const ResourceAccessManager = struct {
     allocator: std.mem.Allocator,
     textures: std.AutoHashMapUnmanaged(Device.TextureHandle, TextureResource),
+    buffers: std.AutoArrayHashMapUnmanaged(Device.BufferHandle, BufferResource),
 
     pub fn init(allocator: std.mem.Allocator) ResourceAccessManager {
         return .{
             .allocator = allocator,
-            .buffers = .empty,
             .textures = .empty,
+            .buffers = .empty,
         };
     }
 
     pub fn deinit(self: *ResourceAccessManager) void {
         self.textures.deinit(self.allocator);
+        self.buffers.deinit(self.allocator);
     }
 
     pub fn update_texture(self: *ResourceAccessManager, h: Device.TextureHandle, access: TextureResourceAccess) !?u32 {
@@ -112,7 +161,7 @@ pub const ResourceAccessManager = struct {
                 return null;
             },
             .pending_write => |prev| {
-                const bit = prev.transition(access);
+                const needs_barrier = prev.incoherent_write() or access.incoherent_write();
                 if (access.is_write()) {
                     tex.* = @unionInit(TextureResource, "pending_write", access);
                 } else {
@@ -120,10 +169,7 @@ pub const ResourceAccessManager = struct {
                 }
 
                 // Guard against incoherent writes since we do not expose `write_only`, `read_only` and `read_write` and coherent/incoherent resource access.
-                if (!access.is_write() or prev == .image_write or access == .image_write) {
-                    return bit;
-                }
-                return null;
+                return if (needs_barrier or !access.is_write()) prev.transition(access) else null;
             },
             .pending_read => |prev| {
                 if (!access.is_write()) {
@@ -133,6 +179,50 @@ pub const ResourceAccessManager = struct {
 
                 const bit = prev.transition(access);
                 tex.* = @unionInit(TextureResource, "pending_write", access);
+                return bit;
+            },
+        }
+    }
+
+    pub fn update_buffer(self: *ResourceAccessManager, h: Device.BufferHandle, access: BufferResourceAccess) !?u32 {
+        const entry = try self.buffers.getOrPut(self.allocator, h);
+        if (!entry.found_existing) {
+            entry.value_ptr.* = .{
+                .pending_write = if (access.is_write()) access else null,
+                .pending_read = if (!access.is_write()) access else null,
+            };
+            return null;
+        }
+
+        const tex = entry.value_ptr;
+        switch (tex.*) {
+            .idle => {
+                if (access.is_write()) {
+                    tex.* = @unionInit(BufferResource, "pending_write", access);
+                } else {
+                    tex.* = @unionInit(BufferResource, "pending_read", access);
+                }
+                return null;
+            },
+            .pending_write => |prev| {
+                const needs_barrier = prev.incoherent_write() or access.incoherent_write();
+                if (access.is_write()) {
+                    tex.* = @unionInit(BufferResource, "pending_write", access);
+                } else {
+                    tex.* = @unionInit(BufferResource, "pending_read", access);
+                }
+
+                // Guard against incoherent writes since we do not expose `write_only`, `read_only` and `read_write` and coherent/incoherent resource access.
+                return if (needs_barrier or !access.is_write()) prev.transition(access) else null;
+            },
+            .pending_read => |prev| {
+                if (!access.is_write()) {
+                    tex.pending_read = access;
+                    return null;
+                }
+
+                const bit = prev.transition(access);
+                tex.* = @unionInit(BufferResource, "pending_write", access);
                 return bit;
             },
         }
