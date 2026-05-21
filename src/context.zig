@@ -33,6 +33,10 @@ pub fn deinit(self: *Context) void {
     self.transition_cache.deinit();
 }
 
+pub fn barrier(_: *Context, b: BarrierBits) void {
+    gl.memoryBarrier(b.flags());
+}
+
 pub const AttachmentLoad = enum { load, clear, dont_care };
 pub const AttachmentStore = enum { store, dont_care };
 
@@ -139,6 +143,7 @@ pub const Transition = union(enum) {
 };
 
 pub fn begin_graphics_pass(self: *Context, attachments: PassAttachments, transitions: []const Transition) !GraphicsEncoder {
+    var b: u32 = 0;
     const fbo: u32 = switch (attachments.target) {
         .framebuffer => self.build_or_get_framebuffer(attachments) catch {
             @panic("failed to build framebuffer");
@@ -152,6 +157,8 @@ pub fn begin_graphics_pass(self: *Context, attachments: PassAttachments, transit
             .dont_care, .load => {},
             .clear => gl.clearNamedFramebufferfv(fbo, gl.COLOR, @intCast(i), &attachment.clear_value),
         }
+
+        b |= if (try self.transition_cache.update_texture(attachment.texture, .color_attachment_write)) |bit| bit else 0;
     }
 
     if (attachments.depth) |depth| {
@@ -165,18 +172,18 @@ pub fn begin_graphics_pass(self: *Context, attachments: PassAttachments, transit
                 }
             },
         }
+        b |= if (try self.transition_cache.update_texture(depth.texture, .depth_attachment_write)) |bit| bit else 0;
     }
 
-    var barrier: u32 = 0;
     for (transitions) |t| {
-        barrier |= switch (t) {
+        b |= switch (t) {
             .buffer => |buf| if (try self.transition_cache.update_buffer(buf.handle, buf.access)) |bit| bit else 0,
             .texture => |tex| if (try self.transition_cache.update_texture(tex.handle, tex.access)) |bit| bit else 0,
         };
     }
 
-    if (barrier != 0) {
-        gl.memoryBarrier(barrier);
+    if (b != 0) {
+        gl.memoryBarrier(b);
     }
 
     return GraphicsEncoder{
@@ -188,16 +195,16 @@ pub fn begin_graphics_pass(self: *Context, attachments: PassAttachments, transit
 }
 
 pub fn begin_transfer_pass(self: *Context, transitions: []const Transition) TransferEncoder {
-    var barrier: u32 = 0;
+    var b: u32 = 0;
     for (transitions) |t| {
-        barrier |= switch (t) {
+        b |= switch (t) {
             .buffer => |buf| if (try self.transition_cache.update_buffer(buf.handle, buf.access)) |bit| bit else 0,
             .texture => |tex| if (try self.transition_cache.update_texture(tex.handle, tex.access)) |bit| bit else 0,
         };
     }
 
-    if (barrier != 0) {
-        gl.memoryBarrier(barrier);
+    if (b != 0) {
+        gl.memoryBarrier(b);
     }
 
     return .{
@@ -206,16 +213,16 @@ pub fn begin_transfer_pass(self: *Context, transitions: []const Transition) Tran
 }
 
 pub fn begin_compute_pass(self: *Context, transitions: []const Transition) ComputeEncoder {
-    var barrier: u32 = 0;
+    var b: u32 = 0;
     for (transitions) |t| {
-        barrier |= switch (t) {
+        b |= switch (t) {
             .buffer => |buf| if (try self.transition_cache.update_buffer(buf.handle, buf.access)) |bit| bit else 0,
             .texture => |tex| if (try self.transition_cache.update_texture(tex.handle, tex.access)) |bit| bit else 0,
         };
     }
 
-    if (barrier != 0) {
-        gl.memoryBarrier(barrier);
+    if (b != 0) {
+        gl.memoryBarrier(b);
     }
     return ComputeEncoder{
         .ctx = self,
@@ -332,12 +339,7 @@ pub const GraphicsEncoder = struct {
                     invalidate_attachments[invalidate_count] = gl.COLOR_ATTACHMENT0 + @as(u32, @intCast(i));
                     invalidate_count += 1;
                 },
-                .store => {
-                    self.ctx.pending_access.append(self.ctx.device.allocator, .{ .texture = .{
-                        .handle = attachment.texture,
-                        .access = .color_attachment_write,
-                    } }) catch unreachable;
-                },
+                .store => {},
             }
         }
 
@@ -351,12 +353,7 @@ pub const GraphicsEncoder = struct {
                     invalidate_attachments[invalidate_count] = attachment_point;
                     invalidate_count += 1;
                 },
-                .store => {
-                    self.ctx.pending_access.append(self.ctx.device.allocator, .{ .texture = .{
-                        .handle = depth.texture,
-                        .access = .depth_attachment_write,
-                    } }) catch unreachable;
-                },
+                .store => {},
             }
         }
 
@@ -393,13 +390,6 @@ pub const ComputeEncoder = struct {
         std.debug.assert(buffer.flags.usage == .storage);
 
         gl.bindBufferRange(gl.SHADER_STORAGE_BUFFER, slot, buf.handle, @intCast(offset), @intCast(size));
-        switch (access) {
-            .read => {},
-            .write => try self.ctx.pending_access.append(self.ctx.device.allocator, .{ .buffer = .{
-                .handle = buf,
-                .access = .storage_buffer_read,
-            } }),
-        }
     }
 
     pub fn bind_uniform_buffer(self: *ComputeEncoder, slot: u32, buf: Device.BufferHandle, offset: usize, size: usize) !void {
@@ -418,13 +408,6 @@ pub const ComputeEncoder = struct {
             .write_only => gl.WRITE_ONLY,
             .read_write => gl.READ_WRITE,
         }, @intFromEnum(texture.format));
-        switch (access) {
-            .read_only => {},
-            .write_only, .read_write => self.ctx.pending_access.append(self.ctx.device.allocator, .{ .texture = .{
-                .handle = tex,
-                .access = .storage_image_write,
-            } }) catch {},
-        }
     }
 
     pub fn bind_texture(self: *ComputeEncoder, slot: u32, tex: Device.TextureHandle) void {
@@ -468,11 +451,6 @@ pub const TransferEncoder = struct {
         const buffer = self.ctx.device.get_buffer(dst) orelse return error.missing_buffer;
         const result = self.ctx.device.staging_buffers.upload(buffer.handle, offset, data);
         if (!result) return error.staging_full;
-
-        try self.ctx.pending_access.append(self.ctx.device.allocator, .{ .buffer = .{
-            .handle = dst,
-            .access = .transfer_write_buffer,
-        } });
     }
 
     pub fn upload_to_allocation(self: *TransferEncoder, alloc: Allocation, offset: usize, data: []const u8) !void {
@@ -481,11 +459,6 @@ pub const TransferEncoder = struct {
         const result = self.ctx.device.staging_buffers.upload(buffer.handle, offset, data);
 
         if (!result) return error.staging_full;
-
-        try self.ctx.pending_access.append(self.ctx.device.allocator, .{ .buffer = .{
-            .handle = alloc.buffer,
-            .access = .transfer_write_buffer,
-        } });
     }
 
     pub const BufferCopyDesc = struct {
@@ -532,13 +505,6 @@ pub const TransferEncoder = struct {
         };
 
         gl.copyNamedBufferSubData(src_buffer.handle, dst_buffer.handle, @intCast(src_offset), @intCast(dst_offset), desc.size);
-        try self.ctx.pending_access.append(self.ctx.device.allocator, .{ .buffer = .{
-            .handle = switch (desc.dst) {
-                ._buffer => |dst| dst,
-                ._alloc => |alloc| alloc.buffer,
-            },
-            .access = .transfer_write_buffer,
-        } });
     }
 
     pub fn map_buffer(self: *TransferEncoder, buf: Device.BufferHandle, comptime T: type) ![]T {
@@ -559,10 +525,6 @@ pub const TransferEncoder = struct {
         const texture = self.ctx.device.get_texture(dst) orelse return error.missing_texture;
 
         texture.write(data);
-        try self.ctx.pending_access.append(self.ctx.device.allocator, .{ .texture = .{
-            .handle = dst,
-            .access = .transfer_write_texture,
-        } });
     }
 
     pub fn generate_mipmaps(self: *TransferEncoder, dst: Device.TextureHandle) !void {
@@ -586,10 +548,6 @@ pub const TransferEncoder = struct {
         }
 
         gl.generateTextureMipmap(texture.handle);
-        try self.ctx.pending_access.append(self.ctx.device.allocator, .{ .texture = .{
-            .handle = dst,
-            .access = .mipmap_generation,
-        } });
     }
 
     pub fn end(self: *TransferEncoder) void {
