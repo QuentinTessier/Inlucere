@@ -16,17 +16,17 @@ pub const VertexFormat = struct {
         component_type: u32, // gl.FLOAT, gl.HALF_FLOAT, gl.INT, etc.
         component_count: u32, // 1, 2, 3, 4
         normalized: bool,
-    };
 
-    pub const f32x1: Info = .{ .component_type = gl.FLOAT, .component_count = 1, .normalized = false };
-    pub const f32x2: Info = .{ .component_type = gl.FLOAT, .component_count = 2, .normalized = false };
-    pub const f32x3: Info = .{ .component_type = gl.FLOAT, .component_count = 3, .normalized = false };
-    pub const f32x4: Info = .{ .component_type = gl.FLOAT, .component_count = 4, .normalized = false };
-    pub const f16x2: Info = .{ .component_type = gl.HALF_FLOAT, .component_count = 2, .normalized = false };
-    pub const f16x4: Info = .{ .component_type = gl.HALF_FLOAT, .component_count = 4, .normalized = false };
-    pub const u8x4_norm: Info = .{ .component_type = gl.UNSIGNED_BYTE, .component_count = 4, .normalized = true };
-    pub const i16x2_norm: Info = .{ .component_type = gl.SHORT, .component_count = 2, .normalized = true };
-    pub const u32x1: Info = .{ .component_type = gl.UNSIGNED_INT, .component_count = 1, .normalized = false };
+        pub const f32x1: Info = .{ .component_type = gl.FLOAT, .component_count = 1, .normalized = false };
+        pub const f32x2: Info = .{ .component_type = gl.FLOAT, .component_count = 2, .normalized = false };
+        pub const f32x3: Info = .{ .component_type = gl.FLOAT, .component_count = 3, .normalized = false };
+        pub const f32x4: Info = .{ .component_type = gl.FLOAT, .component_count = 4, .normalized = false };
+        pub const f16x2: Info = .{ .component_type = gl.HALF_FLOAT, .component_count = 2, .normalized = false };
+        pub const f16x4: Info = .{ .component_type = gl.HALF_FLOAT, .component_count = 4, .normalized = false };
+        pub const u8x4_norm: Info = .{ .component_type = gl.UNSIGNED_BYTE, .component_count = 4, .normalized = true };
+        pub const i16x2_norm: Info = .{ .component_type = gl.SHORT, .component_count = 2, .normalized = true };
+        pub const u32x1: Info = .{ .component_type = gl.UNSIGNED_INT, .component_count = 1, .normalized = false };
+    };
 };
 
 pub const VertexAttribute = struct {
