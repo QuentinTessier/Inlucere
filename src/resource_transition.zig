@@ -143,10 +143,11 @@ pub const ResourceAccessManager = struct {
     pub fn update_texture(self: *ResourceAccessManager, h: Device.TextureHandle, access: TextureResourceAccess) !?u32 {
         const entry = try self.textures.getOrPut(self.allocator, h);
         if (!entry.found_existing) {
-            entry.value_ptr.* = .{
-                .pending_write = if (access.is_write()) access else null,
-                .pending_read = if (!access.is_write()) access else null,
-            };
+            if (access.is_write()) {
+                entry.value_ptr.* = @unionInit(TextureTransition, "pending_write", access);
+            } else {
+                entry.value_ptr.* = @unionInit(TextureTransition, "pending_read", access);
+            }
             return null;
         }
 
@@ -187,10 +188,11 @@ pub const ResourceAccessManager = struct {
     pub fn update_buffer(self: *ResourceAccessManager, h: Device.BufferHandle, access: BufferResourceAccess) !?u32 {
         const entry = try self.buffers.getOrPut(self.allocator, h);
         if (!entry.found_existing) {
-            entry.value_ptr.* = .{
-                .pending_write = if (access.is_write()) access else null,
-                .pending_read = if (!access.is_write()) access else null,
-            };
+            if (access.is_write()) {
+                entry.value_ptr.* = @unionInit(BufferTransition, "pending_write", access);
+            } else {
+                entry.value_ptr.* = @unionInit(BufferTransition, "pending_read", access);
+            }
             return null;
         }
 

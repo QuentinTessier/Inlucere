@@ -1,5 +1,5 @@
 const std = @import("std");
-const Device = @import("device.zig");
+const Device = @import("../device.zig");
 
 pub const GPUAllocator = @This();
 
@@ -24,6 +24,12 @@ pub const Allocation = struct {
     size: u32,
 };
 
+pub const PreMappedAllocation = struct {
+    native_buffer: u32,
+    offset: u32,
+    data: []u8,
+};
+
 pub const GPUAllocatorDesc = struct {
     size: u32,
     usage: Device.Buffer.BufferUsage = .storage,
@@ -33,7 +39,7 @@ pub const GPUAllocatorDesc = struct {
 };
 
 pub fn init(self: *GPUAllocator, device: *Device, desc: *const GPUAllocatorDesc) !void {
-    self.buffer = device.create_buffer(&.{
+    self.buffer = try device.create_buffer(&.{
         .size = desc.size,
         .usage = desc.usage,
         .memory = if (desc.host_coherent) .host_coherent else .device_local,
@@ -79,7 +85,7 @@ fn insert_and_merge_free(self: *GPUAllocator, block: Block) !void {
     const next_offset = self.free_blocks.items[index].offset + self.free_blocks.items[index].size;
     if (next < self.free_blocks.items.len and next_offset == self.free_blocks.items[next].offset) {
         self.free_blocks.items[index].size += self.free_blocks.items[next].size;
-        self.free_blocks.orderedRemove(next);
+        _ = self.free_blocks.orderedRemove(next);
     }
 
     if (index != 0) {
@@ -87,14 +93,14 @@ fn insert_and_merge_free(self: *GPUAllocator, block: Block) !void {
         const block_offset = self.free_blocks.items[prev].offset + self.free_blocks.items[prev].size;
         if (block_offset == self.free_blocks.items[index].offset) {
             self.free_blocks.items[prev].size += self.free_blocks.items[index].size;
-            self.free_blocks.orderedRemove(index);
+            _ = self.free_blocks.orderedRemove(index);
         }
     }
 }
 
 pub fn alloc(self: *GPUAllocator, size: u32) !Allocation {
     const aligned_size = std.mem.alignForward(u32, size, 16);
-    const offset = self.alloc_from_free_list(aligned_size) orelse return .out_of_memory;
+    const offset = self.alloc_from_free_list(aligned_size) orelse return error.OutOfMemory;
 
     const allocation: Allocation = .{
         .buffer = self.buffer,

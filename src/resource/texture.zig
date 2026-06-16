@@ -311,6 +311,7 @@ pub const Channels = packed struct {
         } else if (self._stencil) {
             return gl.STENCIL;
         }
+        return 0;
     }
 };
 

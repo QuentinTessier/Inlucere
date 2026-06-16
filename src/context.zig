@@ -140,6 +140,14 @@ pub fn end_frame(self: *Context) void {
 pub const Transition = union(enum) {
     buffer: struct { handle: Device.BufferHandle, access: ResourceTransition.BufferResourceAccess },
     texture: struct { handle: Device.TextureHandle, access: ResourceTransition.TextureResourceAccess },
+
+    pub fn buf(handle: Device.BufferHandle, access: ResourceTransition.BufferResourceAccess) Transition {
+        return .{ .buffer = .{ .handle = handle, .access = access } };
+    }
+
+    pub fn tex(handle: Device.TextureHandle, access: ResourceTransition.TextureResourceAccess) Transition {
+        return .{ .texture = .{ .handle = handle, .access = access } };
+    }
 };
 
 pub fn begin_graphics_pass(self: *Context, attachments: PassAttachments, transitions: []const Transition) !GraphicsEncoder {
@@ -194,7 +202,7 @@ pub fn begin_graphics_pass(self: *Context, attachments: PassAttachments, transit
     };
 }
 
-pub fn begin_transfer_pass(self: *Context, transitions: []const Transition) TransferEncoder {
+pub fn begin_transfer_pass(self: *Context, transitions: []const Transition) !TransferEncoder {
     var b: u32 = 0;
     for (transitions) |t| {
         b |= switch (t) {
@@ -209,10 +217,12 @@ pub fn begin_transfer_pass(self: *Context, transitions: []const Transition) Tran
 
     return .{
         .ctx = self,
+        .concurrent_writes = .empty,
+        .wait_group = .init,
     };
 }
 
-pub fn begin_compute_pass(self: *Context, transitions: []const Transition) ComputeEncoder {
+pub fn begin_compute_pass(self: *Context, transitions: []const Transition) !ComputeEncoder {
     var b: u32 = 0;
     for (transitions) |t| {
         b |= switch (t) {
@@ -267,7 +277,7 @@ pub const GraphicsEncoder = struct {
         gl.vertexArrayElementBuffer(self.ctx.bound_vao, buffer.handle);
     }
 
-    pub fn bind_uniform_buffer(self: *GraphicsEncoder, slot: u32, buf: Device.BufferHandle, offset: usize, size: usize) !void {
+    pub fn bind_uniform_buffer(self: *GraphicsEncoder, slot: u32, buf: Device.BufferHandle, offset: usize, size: usize) void {
         const buffer = self.ctx.device.buffers.get(buf.to_untyped()) orelse return;
         std.debug.assert(buffer.flags.usage == .uniform);
 
@@ -278,7 +288,7 @@ pub const GraphicsEncoder = struct {
         const buffer = self.ctx.device.buffers.get(buf.to_untyped()) orelse return;
         std.debug.assert(buffer.flags.usage == .storage);
 
-        gl.bindBufferRange(gl.SHADER_STORAGE_BUFFER, slot, buf.handle, @intCast(offset), @intCast(size));
+        gl.bindBufferRange(gl.SHADER_STORAGE_BUFFER, slot, buffer.handle, @intCast(offset), @intCast(size));
     }
 
     pub fn bind_texture(self: *GraphicsEncoder, slot: u32, tex: Device.TextureHandle) void {
@@ -444,21 +454,111 @@ pub const ComputeEncoder = struct {
     }
 };
 
+const PendingWrite = struct {
+    src_buffer: u32,
+    src_offset: u32,
+    dst_buffer: u32,
+    dst_offset: u32,
+    len: u32,
+};
+
 pub const TransferEncoder = struct {
     ctx: *Context,
+    concurrent_writes: std.array_list.Aligned(PendingWrite, null),
+    wait_group: std.Io.Group,
 
     pub fn upload_buffer(self: *TransferEncoder, dst: Device.BufferHandle, offset: usize, data: []const u8) !void {
-        const buffer = self.ctx.device.get_buffer(dst) orelse return error.missing_buffer;
-        const result = self.ctx.device.staging_buffers.upload(buffer.handle, offset, data);
-        if (!result) return error.staging_full;
+        const buffer: *Device.Buffer = self.ctx.device.get_buffer(dst) orelse return error.missing_buffer;
+        if (buffer.flags.memory == .host_coherent or buffer.flags.memory == .host_visible) {
+            const dst_ = (try buffer.cast(u8))[offset .. offset + data.len];
+            const src_ = data;
+
+            @memcpy(dst_, src_);
+        } else {
+            const result = self.ctx.device.staging_buffers.upload(buffer.handle, offset, data);
+            if (!result) return error.staging_full;
+        }
     }
 
-    pub fn upload_to_allocation(self: *TransferEncoder, alloc: Allocation, offset: usize, data: []const u8) !void {
-        const buffer = self.ctx.device.get_buffer(alloc.buffer) orelse return error.missing_buffer;
-        std.debug.assert((@as(usize, @intCast(alloc.size)) - offset) >= data.len);
-        const result = self.ctx.device.staging_buffers.upload(buffer.handle, offset, data);
+    pub fn upload_allocation(self: *TransferEncoder, dst: Allocation, offset: usize, data: []const u8) !void {
+        const buffer: *Device.Buffer = self.ctx.device.get_buffer(dst.buffer) orelse return error.missing_buffer;
+        std.debug.assert((@as(usize, @intCast(dst.size)) - offset) >= data.len);
+        if (buffer.flags.memory == .host_coherent or buffer.flags.memory == .host_visible) {
+            const dst_ = (try buffer.cast(u8))[dst.offset + offset .. dst.offset + offset + data.len];
+            const src_ = data;
 
-        if (!result) return error.staging_full;
+            @memcpy(dst_, src_);
+        } else {
+            const result = self.ctx.device.staging_buffers.upload(buffer.handle, dst.offset + offset, data);
+            if (!result) return error.staging_full;
+        }
+    }
+
+    pub fn concurrent_upload_buffer(self: *TransferEncoder, io: std.Io, dst: Device.BufferHandle, offset: usize, data: []const u8) !void {
+        const buffer: *Device.Buffer = self.ctx.device.get_buffer(dst) orelse return error.missing_buffer;
+        if (buffer.flags.memory == .host_coherent or buffer.flags.memory == .host_visible) {
+            const _dst = (try buffer.cast(u8))[offset .. offset + data.len];
+            const _src = data;
+
+            self.wait_group.concurrent(io, __copy, .{ _dst, _src }) catch {
+                std.log.warn("Failed concurrent write in staging buffer, falling back to single-threaded", .{});
+                __copy(_dst, _src);
+            };
+        } else {
+            if (self.ctx.device.staging_buffers.alloc(data.len)) |alloc| {
+                try self.concurrent_writes.append(self.ctx.device.allocator, .{
+                    .dst_buffer = buffer.handle,
+                    .dst_offset = @intCast(offset),
+                    .src_buffer = alloc.native_buffer,
+                    .src_offset = alloc.offset,
+                    .len = @intCast(data.len),
+                });
+
+                const _dst = alloc.data;
+                const _src = data;
+
+                self.wait_group.concurrent(io, __copy, .{ _dst, _src }) catch {
+                    std.log.warn("Failed concurrent write in staging buffer, falling back to single-threaded", .{});
+                    __copy(_dst, _src);
+                };
+            } else return error.staging_full;
+        }
+    }
+
+    pub fn concurrent_upload_allocation(self: *TransferEncoder, io: std.Io, dst: Allocation, offset: usize, data: []const u8) !void {
+        const buffer: *Device.Buffer = self.ctx.device.get_buffer(dst.buffer) orelse return error.missing_buffer;
+        std.debug.assert((@as(usize, @intCast(dst.size)) - offset) >= data.len);
+        if (buffer.flags.memory == .host_coherent or buffer.flags.memory == .host_visible) {
+            const _dst = (try buffer.cast(u8))[dst.offset + offset .. dst.offset + offset + data.len];
+            const _src = data;
+
+            self.wait_group.concurrent(io, __copy, .{ _dst, _src }) catch {
+                std.log.warn("Failed concurrent write in staging buffer, falling back to single-threaded", .{});
+                __copy(_dst, _src);
+            };
+        } else {
+            if (self.ctx.device.staging_buffers.alloc(data.len)) |alloc| {
+                try self.concurrent_writes.append(self.ctx.device.allocator, .{
+                    .dst_buffer = buffer.handle,
+                    .dst_offset = @intCast(dst.offset + offset),
+                    .src_buffer = alloc.native_buffer,
+                    .src_offset = alloc.offset,
+                    .len = @intCast(data.len),
+                });
+
+                const _dst = alloc.data[offset..];
+                const _src = data;
+
+                self.wait_group.concurrent(io, __copy, .{ _dst, _src }) catch {
+                    std.log.warn("Failed concurrent write in staging buffer, falling back to single-threaded", .{});
+                    __copy(_dst, _src);
+                };
+            } else return error.staging_full;
+        }
+    }
+
+    fn __copy(dst: []u8, src: []const u8) void {
+        @memcpy(dst, src);
     }
 
     pub const BufferCopyDesc = struct {
@@ -550,7 +650,20 @@ pub const TransferEncoder = struct {
         gl.generateTextureMipmap(texture.handle);
     }
 
-    pub fn end(self: *TransferEncoder) void {
+    pub fn end(self: *TransferEncoder, io: ?std.Io) void {
+        if (io) |interface| {
+            self.wait_group.await(interface) catch {};
+            for (self.concurrent_writes.items) |pending_write| {
+                gl.copyNamedBufferSubData(
+                    pending_write.src_buffer,
+                    pending_write.dst_buffer,
+                    @intCast(pending_write.src_offset),
+                    @intCast(pending_write.dst_offset),
+                    @intCast(pending_write.len),
+                );
+            }
+            self.concurrent_writes.deinit(self.ctx.device.allocator);
+        }
         if (std.debug.runtime_safety) {
             self.ctx = undefined;
         }

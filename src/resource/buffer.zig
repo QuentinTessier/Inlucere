@@ -112,7 +112,7 @@ pub fn deinit(self: *Buffer, _: std.mem.Allocator) void {
 
 // Alignment can be record into type T, such as '[3]f32 align(16)'
 pub fn cast(self: *const Buffer, comptime T: type) ![]T {
-    std.debug.assert(self.flags.access != .write_only);
+    //std.debug.assert(self.flags.access != .write_only);
     if (self.ptr) |ptr| {
         const count = @divExact(self.size, @sizeOf(T));
         const casted: [*]T = @ptrCast(@alignCast(ptr));

@@ -103,7 +103,6 @@ pub fn create(comptime resource_type: ResourceHandleIdentifier) type {
         .compute_pipeline => ComputePipeline.ComputePipelineDesc,
         .shader => Shader.ShaderDesc,
         .sampler => Sampler.SamplerDesc,
-        else => void,
     };
 
     const data_type = switch (resource_type) {
@@ -113,7 +112,6 @@ pub fn create(comptime resource_type: ResourceHandleIdentifier) type {
         .compute_pipeline => ComputePipeline,
         .shader => Shader,
         .sampler => Sampler,
-        else => void,
     };
 
     std.debug.assert(payload != void);
@@ -126,7 +124,6 @@ pub fn create(comptime resource_type: ResourceHandleIdentifier) type {
                 .graphic_pipeline => try self.graphic_pipelines.new(),
                 .compute_pipeline => try self.compute_pipelines.new(),
                 .shader => try self.shaders.new(),
-                else => unreachable,
             };
 
             if (resource_type == .graphic_pipeline or resource_type == .compute_pipeline) {
@@ -146,7 +143,6 @@ pub fn create(comptime resource_type: ResourceHandleIdentifier) type {
                 .graphic_pipeline => self.graphic_pipelines.destroy(h.to_untyped(), self.allocator, GraphicPipeline.deinit),
                 .compute_pipeline => self.compute_pipelines.destroy(h.to_untyped(), self.allocator, ComputePipeline.deinit),
                 .shader => self.shaders.destroy(h.to_untyped(), self.allocator, Shader.deinit),
-                else => unreachable,
             }
         }
 
@@ -158,7 +154,6 @@ pub fn create(comptime resource_type: ResourceHandleIdentifier) type {
                 .graphic_pipeline => self.graphic_pipelines.get(h.to_untyped()),
                 .compute_pipeline => self.compute_pipelines.get(h.to_untyped()),
                 .shader => self.shaders.get(h.to_untyped()),
-                else => unreachable,
             };
         }
     };

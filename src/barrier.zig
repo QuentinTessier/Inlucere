@@ -14,7 +14,7 @@ pub const BarrierBits = packed struct(u32) {
     framebuffer: bool = false,
     client_mapped: bool = false,
     ssbo: bool = false,
-    _padding: u22 = 0,
+    _padding: u20 = 0,
 
     pub fn is_empty(self: BarrierBits) bool {
         return @as(u32, @bitCast(self)) == 0;
