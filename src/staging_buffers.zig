@@ -9,19 +9,32 @@ const StagingBuffer = struct {
     fence: ?gl.GLsync = null,
 };
 
+pub const PendingWrite = struct {
+    src_offset: u32,
+    dst_buffer: u32,
+    dst_offset: u32,
+    len: u32,
+};
+
+io: std.Io,
 buffers: std.array_list.Aligned(StagingBuffer, null),
+pending_async_writes: std.array_list.Aligned(PendingWrite, null),
+async_group: std.Io.Group,
 size: u32,
 offset: u32,
 current_frame: u32,
 
 pub const Options = struct {
     size: usize = 64 * 1024 * 1024,
+    max_async_transfer: usize = 8,
     count: usize = 2,
     defines_debug_names: bool = false,
 };
 
-pub fn init(self: *StagingBuffers, allocator: std.mem.Allocator, options: *const Options) !void {
+pub fn init(self: *StagingBuffers, io: std.Io, allocator: std.mem.Allocator, options: *const Options) !void {
+    self.io = io;
     self.buffers = try .initCapacity(allocator, options.count);
+    self.pending_async_writes = try .initCapacity(allocator, options.max_async_transfer);
     errdefer {
         for (self.buffers.items) |buffer| {
             gl.deleteBuffers(1, @ptrCast(&buffer.handle));
@@ -67,6 +80,10 @@ pub fn deinit(self: *StagingBuffers, allocator: std.mem.Allocator) void {
         }
     }
     self.buffers.deinit(allocator);
+    for (self.pending_async_writes.items) |fut| {
+        fut.await(self.io);
+    }
+    self.pending_async_writes.deinit(allocator);
 }
 
 pub fn begin_staging(self: *StagingBuffers) void {
@@ -81,6 +98,16 @@ pub fn begin_staging(self: *StagingBuffers) void {
 }
 
 pub fn end_staging(self: *StagingBuffers) void {
+    for (self.pending_async_writes.items) |copy| {
+        gl.copyNamedBufferSubData(
+            self.buffers.items[@intCast(self.current_frame)].handle,
+            copy.dst_buffer,
+            @intCast(copy.src_offset),
+            @intCast(copy.dst_offset),
+            @intCast(copy.len),
+        );
+    }
+    self.pending_async_writes.clearRetainingCapacity();
     self.buffers.items[@intCast(self.current_frame)].fence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
 }
 
@@ -102,4 +129,30 @@ pub fn upload(self: *StagingBuffers, dst_buffer: u32, dst_offset: usize, data: [
 
     self.offset += @intCast(data.len);
     return true;
+}
+
+pub fn async_upload(self: *StagingBuffers, dst_buffer: u32, dst_offset: usize, data: []const u8) bool {
+    if (self.offset + @as(u32, @intCast(data.len)) > self.size) {
+        return false;
+    }
+
+    const slot = self.pending_async_writes.addOneBounded() catch return false;
+    slot.src_offset = self.offset;
+    slot.dst_buffer = dst_buffer;
+    slot.dst_offset = dst_offset;
+    slot.len = @intCast(data.len);
+
+    const slice = self.buffers.items[@intCast(self.current_frame)].mapped_memory[@intCast(self.offset) .. @as(usize, @intCast(self.offset)) + data.len];
+    self.offset += @intCast(data.len);
+
+    try self.async_group.concurrent(self.io, struct {
+        fn run(dst: []u8, src: []const u8) void {
+            @memcpy(dst, src);
+        }
+    }.run, .{ slice, data });
+    return true;
+}
+
+pub fn wait_all(self: *StagingBuffers) !void {
+    return self.async_group.await(self.io);
 }
