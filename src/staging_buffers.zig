@@ -80,9 +80,7 @@ pub fn deinit(self: *StagingBuffers, allocator: std.mem.Allocator) void {
         }
     }
     self.buffers.deinit(allocator);
-    for (self.pending_async_writes.items) |fut| {
-        fut.await(self.io);
-    }
+    self.async_group.await(self.io);
     self.pending_async_writes.deinit(allocator);
 }
 
